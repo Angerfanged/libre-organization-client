@@ -1,12 +1,22 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 import 'package:dynamic_color/dynamic_color.dart';
 import 'package:libre_organization_client/theme/dynamic_theme.dart';
 
 import 'package:libre_organization_client/views/auth_gate.dart';
 import 'package:libre_organization_client/views/home_page.dart';
 
+import 'package:libre_organization_client/presenters/organization_presenter.dart';
+
 void main() {
-  runApp(const MyApp());
+  runApp(
+    MultiProvider(
+      providers: [
+        ChangeNotifierProvider(create: (_) => OrganizationPresenter()),
+      ],
+      child: const MyApp(),
+    ),
+  );
 }
 
 class MyApp extends StatelessWidget {

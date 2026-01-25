@@ -5,6 +5,9 @@ import 'package:libre_organization_client/socket_client.dart';
 import 'dart:convert';
 import 'package:flutter/services.dart' as root_bundle;
 
+import 'package:libre_organization_client/views/organization_view.dart';
+import 'package:libre_organization_client/presenters/organization_presenter.dart';
+
 class HomePage extends StatefulWidget {
   const HomePage({Key? key}) : super(key: key);
 
@@ -35,20 +38,25 @@ class _HomePageState extends State<HomePage> {
 
       // Extract self-hosted organizations after data is loaded
       final userEmail = Credentials().email;
-      final organizations =
+      final List orgList =
           userData[userEmail]['self_hosted_organizations'] as List;
-
-      setState(() {
-        selfHostedOrganizations = organizations;
-      });
-
-      // Connect to all self-hosted organizations
-      for (var org in organizations) {
+      List<Map<String, dynamic>> parsedOrgData = [];
+      // Parse each organization entry and connect to it
+      for (var org in orgList) {
         print(org);
+        Map<String, dynamic> orgData = {
+          'name': org['name'],
+          'host': org['host'],
+          'port': org['port'],
+          'use_secure_connection': org['use_secure_connection'] == "true",
+        };
+        parsedOrgData.add(orgData);
         final protocol = org['use_secure_connection'] ? 'https' : 'http';
         final orgUrl = '$protocol://${org['host']}:${org['port']}';
         SocketClient().connectToUserServer(orgUrl);
       }
+      // Update the presenter with the parsed organization data
+      OrganizationPresenter().updateOrganizations(parsedOrgData);
     } catch (e) {
       ScaffoldMessenger.of(
         context,
@@ -63,7 +71,7 @@ class _HomePageState extends State<HomePage> {
       case 1:
         return _buildChatsContent();
       case 2:
-        return _buildOrganizationsContent();
+        return OrganizationView();
       case 3:
         return _buildCalendarContent();
       case 4:
@@ -106,32 +114,6 @@ class _HomePageState extends State<HomePage> {
   Widget _buildChatsContent() {
     return Center(
       child: Text('Chats', style: Theme.of(context).textTheme.headlineSmall),
-    );
-  }
-
-  Widget _buildOrganizationsContent() {
-    return Row(
-      children: <Widget>[
-        SizedBox(
-          width: 250,
-          child: ListView.builder(
-            itemCount: selfHostedOrganizations.length,
-            itemBuilder: (context, index) {
-              return ExpansionTile(
-                title: Text(selfHostedOrganizations[index]['name']),
-                children: <Widget>[Text('Organization Channel')],
-              );
-            },
-          ),
-        ),
-        const VerticalDivider(),
-        Center(
-          child: Text(
-            'Organization Window',
-            style: Theme.of(context).textTheme.headlineSmall,
-          ),
-        ),
-      ],
     );
   }
 
@@ -219,7 +201,9 @@ class _HomePageState extends State<HomePage> {
                       PopupMenuButton<String>(
                         onSelected: (String result) {
                           if (result == 'logout') {
-                            Credentials().clear();
+                            Credentials().clear(); // Clear stored credentials
+                            SocketClient()
+                                .dispose(); // Close socket connections
                             Navigator.pushReplacementNamed(context, '/auth');
                           }
                         },

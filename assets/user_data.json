@@ -2,6 +2,7 @@
     "john@example.com": {
         "self_hosted_organizations": [
             {
+                "name": "Localhost Org",
                 "host": "localhost",
                 "port": 3000,
                 "use_secure_connection": false
