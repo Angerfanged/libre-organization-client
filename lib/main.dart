@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:dynamic_color/dynamic_color.dart';
-import 'package:libre_organization_client/credentials.dart';
 import 'package:libre_organization_client/theme/dynamic_theme.dart';
 
 import 'package:libre_organization_client/views/auth_gate.dart';
