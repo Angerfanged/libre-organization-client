@@ -10,7 +10,10 @@ class DynamicTheme {
       useMaterial3: true,
       elevatedButtonTheme: ElevatedButtonThemeData(
         style: ButtonStyle(
-          backgroundColor: MaterialStateProperty.all(colorScheme.primary),
+          backgroundColor: WidgetStateProperty.all(colorScheme.primary),
+          textStyle: WidgetStateProperty.all(
+            TextStyle(color: colorScheme.onPrimary),
+          ),
         ),
       ),
     );
@@ -25,7 +28,10 @@ class DynamicTheme {
       useMaterial3: true,
       elevatedButtonTheme: ElevatedButtonThemeData(
         style: ButtonStyle(
-          backgroundColor: MaterialStateProperty.all(colorScheme.primary),
+          backgroundColor: WidgetStateProperty.all(colorScheme.primary),
+          textStyle: WidgetStateProperty.all(
+            TextStyle(color: colorScheme.onPrimary),
+          ),
         ),
       ),
     );
