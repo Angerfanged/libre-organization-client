@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 
 import 'package:libre_organization_client/presenters/organization_presenter.dart';
-import 'package:provider/provider.dart';
 
 class OrganizationView extends StatefulWidget {
   const OrganizationView({Key? key}) : super(key: key);
@@ -30,7 +30,28 @@ class _OrganizationViewState extends State<OrganizationView> {
                   }
                   return ExpansionTile(
                     title: Text(value.organizations[index]['name']),
-                    children: <Widget>[Text('Organization Channel')],
+                    leading: ClipRRect(
+                      borderRadius: BorderRadius.circular(10),
+                      child: Image.network(
+                        value.organizations[index]['iconUrl'],
+                        width: 35,
+                        height: 35,
+                        fit: BoxFit.cover,
+                      ),
+                    ),
+                    expandedAlignment: Alignment.topLeft,
+                    expandedCrossAxisAlignment: CrossAxisAlignment.start,
+                    onExpansionChanged: (bool isExpanded) {
+                      if (isExpanded) {
+                        OrganizationPresenter().getOrganizationsChannels(
+                          value.organizations[index]['serverUrl'],
+                        );
+                      }
+                    },
+                    children: OrganizationPresenter().buildOrganizationChannels(
+                      value.organizations[index],
+                      context,
+                    ),
                   );
                 },
               );
@@ -39,10 +60,11 @@ class _OrganizationViewState extends State<OrganizationView> {
         ),
         const VerticalDivider(),
         // Main content area
-        Center(
-          child: Text(
-            'Organization Window',
-            style: Theme.of(context).textTheme.headlineSmall,
+        Expanded(
+          child: Consumer<OrganizationPresenter>(
+            builder: (context, value, child) {
+              return OrganizationPresenter().buildChannelContent(context);
+            },
           ),
         ),
       ],

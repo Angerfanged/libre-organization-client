@@ -1,3 +1,4 @@
+import 'package:libre_organization_client/credentials.dart';
 import 'package:socket_io_client/socket_io_client.dart' as IO;
 import 'dart:async';
 
@@ -22,6 +23,10 @@ class SocketClient {
 
     mainSocket.onConnect((_) {
       print('Connected to main server: $mainServerUrl');
+      mainSocket.emit('login', {
+        'email': Credentials().email,
+        "password": Credentials().hashedPassword,
+      });
     });
 
     mainSocket.onDisconnect((_) {
@@ -44,6 +49,10 @@ class SocketClient {
 
     socket.onConnect((_) {
       print('Connected to user server: $serverUrl');
+      socket.emit('login', {
+        'email': Credentials().email,
+        "password": Credentials().hashedPassword,
+      });
     });
 
     socket.onDisconnect((_) {
@@ -108,7 +117,9 @@ class SocketClient {
   // Disconnect all sockets
   void dispose() {
     mainSocket.disconnect();
-    userSockets.forEach((url, socket) => socket.disconnect());
-    userSockets.clear();
+    while (userSockets.length > 0) {
+      String key = userSockets.keys.toList()[0];
+      disconnectFromUserServer(key);
+    }
   }
 }

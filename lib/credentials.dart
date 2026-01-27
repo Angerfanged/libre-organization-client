@@ -1,4 +1,6 @@
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import 'package:crypto/crypto.dart';
+import 'dart:convert';
 
 class Credentials {
   static final Credentials _instance = Credentials._();
@@ -14,6 +16,8 @@ class Credentials {
 
   String get password => _password;
   set password(String value) => _password = value;
+
+  String get hashedPassword => sha512.convert(utf8.encode(password)).toString();
 
   void clear() {
     _email = '';

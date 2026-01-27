@@ -90,7 +90,7 @@ class _AuthGateState extends State<AuthGate> {
         // Send login
         SocketClient().sendToMain('login', {
           'email': email,
-          'password': sha512.convert(utf8.encode(password)).toString(),
+          'password': Credentials().hashedPassword,
         });
       } else {
         setState(() {

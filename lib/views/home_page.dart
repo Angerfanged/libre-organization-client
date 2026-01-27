@@ -4,6 +4,7 @@ import 'package:libre_organization_client/socket_client.dart';
 
 import 'dart:convert';
 import 'package:flutter/services.dart' as root_bundle;
+import 'package:libre_organization_client/views/chat_view.dart';
 
 import 'package:libre_organization_client/views/organization_view.dart';
 import 'package:libre_organization_client/presenters/organization_presenter.dart';
@@ -40,7 +41,6 @@ class _HomePageState extends State<HomePage> {
       final userEmail = Credentials().email;
       final List orgList =
           userData[userEmail]['self_hosted_organizations'] as List;
-      List<Map<String, dynamic>> parsedOrgData = [];
       // Parse each organization entry and connect to it
       for (var org in orgList) {
         print(org);
@@ -49,14 +49,24 @@ class _HomePageState extends State<HomePage> {
           'host': org['host'],
           'port': org['port'],
           'use_secure_connection': org['use_secure_connection'] == "true",
+          'serverUrl':
+              (org['use_secure_connection'] == "true" ? 'https' : 'http') +
+              '://' +
+              org['host'] +
+              ':' +
+              org['port'].toString(),
+          'channels': [],
+          'iconUrl':
+              (org['use_secure_connection'] == "true" ? 'https' : 'http') +
+              '://' +
+              org['host'] +
+              ':' +
+              org['port'].toString() +
+              '/public/icon.png',
         };
-        parsedOrgData.add(orgData);
-        final protocol = org['use_secure_connection'] ? 'https' : 'http';
-        final orgUrl = '$protocol://${org['host']}:${org['port']}';
-        SocketClient().connectToUserServer(orgUrl);
+        OrganizationPresenter().updateOrganizations(orgData);
+        SocketClient().connectToUserServer(orgData['serverUrl']);
       }
-      // Update the presenter with the parsed organization data
-      OrganizationPresenter().updateOrganizations(parsedOrgData);
     } catch (e) {
       ScaffoldMessenger.of(
         context,
@@ -69,7 +79,7 @@ class _HomePageState extends State<HomePage> {
       case 0:
         return _buildActivityContent();
       case 1:
-        return _buildChatsContent();
+        return ChatView();
       case 2:
         return OrganizationView();
       case 3:
