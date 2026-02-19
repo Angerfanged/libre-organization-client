@@ -30,7 +30,6 @@ class OrganizationPresenter extends ChangeNotifier {
     for (var org in organizations) {
       if (org['serverUrl'] == newOrganizationData['serverUrl']) {
         org = newOrganizationData;
-        print(organizations);
         notifyListeners();
         return;
       }
@@ -74,6 +73,8 @@ class OrganizationPresenter extends ChangeNotifier {
                   borderRadius: BorderRadius.circular(8.0),
                 ),
                 foregroundColor: Theme.of(context).colorScheme.onSurface,
+                padding: EdgeInsets.all(5),
+                alignment: Alignment.centerLeft,
               ),
               icon: Icon(Icons.tag),
               label: Text(channel['name']),
@@ -96,6 +97,8 @@ class OrganizationPresenter extends ChangeNotifier {
                   borderRadius: BorderRadius.circular(8.0),
                 ),
                 foregroundColor: Theme.of(context).colorScheme.onSurface,
+                padding: EdgeInsets.all(5),
+                alignment: Alignment.centerLeft,
               ),
               icon: Icon(Icons.volume_up),
               label: Text(channel['name']),
@@ -135,42 +138,130 @@ class OrganizationPresenter extends ChangeNotifier {
       case 'text':
         return Column(
           children: [
+            Container(
+              color: Theme.of(context).scaffoldBackgroundColor,
+              child: Column(
+                children: [
+                  Padding(padding: EdgeInsetsGeometry.all(2.5)),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.start,
+                    crossAxisAlignment: CrossAxisAlignment.center,
+                    children: [
+                      Padding(padding: EdgeInsetsGeometry.all(2.5)),
+                      Container(
+                        decoration: BoxDecoration(
+                          color: Theme.of(context).colorScheme.primary,
+                          borderRadius: BorderRadius.circular(5),
+                        ),
+                        child: (Row(
+                          children: [
+                            Padding(padding: EdgeInsetsGeometry.all(5)),
+                            Icon(
+                              Icons.tag,
+                              color: Theme.of(context).colorScheme.onPrimary,
+                            ),
+                            Text(
+                              currentChannel['name'] ?? '',
+                              style: Theme.of(context).textTheme.titleLarge!
+                                  .copyWith(
+                                    color: Theme.of(
+                                      context,
+                                    ).colorScheme.onPrimary,
+                                  ),
+                            ),
+                            Padding(padding: EdgeInsetsGeometry.all(8)),
+                          ],
+                        )),
+                      ),
+
+                      Padding(padding: EdgeInsetsGeometry.all(12)),
+                      TextButton.icon(
+                        icon: Icon(
+                          Icons.chat,
+                          color: Theme.of(context).colorScheme.secondary,
+                        ),
+                        label: Text(
+                          'Chat',
+                          style: Theme.of(context).textTheme.titleLarge,
+                        ),
+                        onPressed: () {},
+                      ),
+                      Padding(padding: EdgeInsetsGeometry.all(12)),
+                      TextButton.icon(
+                        icon: Icon(
+                          Icons.folder,
+                          color: Theme.of(context).colorScheme.secondary,
+                        ),
+                        label: Text(
+                          'Files',
+                          style: Theme.of(context).textTheme.titleLarge,
+                        ),
+                        onPressed: () {},
+                      ),
+                      Padding(padding: EdgeInsetsGeometry.all(12)),
+                      TextButton.icon(
+                        icon: Icon(
+                          Icons.group,
+                          color: Theme.of(context).colorScheme.secondary,
+                        ),
+                        label: Text(
+                          'People',
+                          style: Theme.of(context).textTheme.titleLarge,
+                        ),
+                        onPressed: () {},
+                      ),
+                      Padding(padding: EdgeInsetsGeometry.all(12)),
+                      TextButton.icon(
+                        icon: Icon(
+                          Icons.settings,
+                          color: Theme.of(context).colorScheme.secondary,
+                        ),
+                        label: Text(
+                          'Settings',
+                          style: Theme.of(context).textTheme.titleLarge,
+                        ),
+                        onPressed: () {},
+                      ),
+                    ],
+                  ),
+                  Padding(padding: EdgeInsetsGeometry.all(2.5)),
+                ],
+              ),
+            ),
+            // Chat content goes here
+            Expanded(
+              child: Column(
+                verticalDirection: VerticalDirection.up,
+                children: [Text('Test')],
+              ),
+            ),
             Row(
-              mainAxisAlignment: MainAxisAlignment.start,
               children: [
-                Icon(Icons.tag),
-                Text(
-                  currentChannel['name'] ?? '',
-                  style: Theme.of(context).textTheme.titleLarge,
-                ),
-                Padding(padding: EdgeInsetsGeometry.all(12)),
-                TextButton(
-                  child: Text(
-                    'Posts',
-                    style: Theme.of(context).textTheme.titleLarge,
+                IconButton(onPressed: () {}, icon: Icon(Icons.add)),
+                Expanded(
+                  child: TextField(
+                    decoration: InputDecoration(
+                      hintText: 'Message channel',
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      contentPadding: const EdgeInsets.symmetric(
+                        vertical: 5,
+                        horizontal: 16,
+                      ),
+                    ),
+                    onSubmitted: (value) {},
                   ),
-                  onPressed: () {},
                 ),
-                Padding(padding: EdgeInsetsGeometry.all(12)),
-                TextButton(
-                  child: Text(
-                    'Files',
-                    style: Theme.of(context).textTheme.titleLarge,
-                  ),
+                IconButton(
                   onPressed: () {},
+                  icon: Icon(Icons.send),
+                  color: Theme.of(context).colorScheme.primary,
                 ),
-                Padding(padding: EdgeInsetsGeometry.all(12)),
-                TextButton(
-                  child: Text(
-                    'People',
-                    style: Theme.of(context).textTheme.titleLarge,
-                  ),
-                  onPressed: () {},
-                ),
+                Padding(padding: EdgeInsetsGeometry.all(5)),
               ],
             ),
-            Divider(),
-            // Chat content goes here
+            Padding(padding: EdgeInsetsGeometry.all(5)),
           ],
         );
       case 'voice':
@@ -181,13 +272,7 @@ class OrganizationPresenter extends ChangeNotifier {
           ],
         );
       default:
-        return Column(
-          children: [
-            Expanded(
-              child: Center(
-                child: Text('Select a channel to view it\'s content'),
-              ),
-            ),
+        return Column(children: [
           ],
         );
     }

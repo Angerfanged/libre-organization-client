@@ -17,7 +17,7 @@ class HomePage extends StatefulWidget {
 }
 
 class _HomePageState extends State<HomePage> {
-  int _selectedNavIndex = 0;
+  int _selectedNavIndex = 1;
   dynamic userData;
   List<dynamic> selfHostedOrganizations = [];
 
@@ -43,7 +43,6 @@ class _HomePageState extends State<HomePage> {
           userData[userEmail]['self_hosted_organizations'] as List;
       // Parse each organization entry and connect to it
       for (var org in orgList) {
-        print(org);
         Map<String, dynamic> orgData = {
           'name': org['name'],
           'host': org['host'],
@@ -83,16 +82,11 @@ class _HomePageState extends State<HomePage> {
       case 2:
         return OrganizationView();
       case 3:
-        return _buildCalendarContent();
-      case 4:
         return _buildToDoContent();
+      case 4:
+        return _buildCalendarContent();
       default:
-        return Center(
-          child: Text(
-            'Select a section',
-            style: Theme.of(context).textTheme.titleMedium,
-          ),
-        );
+        return Center(child: Text('Select a section'));
     }
   }
 
@@ -118,12 +112,6 @@ class _HomePageState extends State<HomePage> {
   Widget _buildActivityContent() {
     return Center(
       child: Text('Activity', style: Theme.of(context).textTheme.headlineSmall),
-    );
-  }
-
-  Widget _buildChatsContent() {
-    return Center(
-      child: Text('Chats', style: Theme.of(context).textTheme.headlineSmall),
     );
   }
 
@@ -167,12 +155,12 @@ class _HomePageState extends State<HomePage> {
                 label: Text('Organizations'),
               ),
               NavigationRailDestination(
-                icon: Icon(Icons.calendar_today),
-                label: Text('Calendar'),
-              ),
-              NavigationRailDestination(
                 icon: Icon(Icons.checklist),
                 label: Text('To-Do'),
+              ),
+              NavigationRailDestination(
+                icon: Icon(Icons.calendar_today),
+                label: Text('Calendar'),
               ),
             ],
           ),
