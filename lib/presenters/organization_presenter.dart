@@ -212,6 +212,7 @@ class OrganizationPresenter extends ChangeNotifier {
   void messageListener(int organizationIndex) {
     var org = organizations[organizationIndex];
     if (org['host'] != null && org['port'] != null) {
+      // Reset listeners to prevent duplicates
       SocketClient().offUserEvent(
         '${org['host']}:${org['port']}',
         'newMessage',
@@ -220,6 +221,7 @@ class OrganizationPresenter extends ChangeNotifier {
         '${org['host']}:${org['port']}',
         'sendHistory',
       );
+      // Set up listeners for new messages and message history
       SocketClient().onUserEvent(
         '${org['host']}:${org['port']}',
         'newMessage',
@@ -237,10 +239,11 @@ class OrganizationPresenter extends ChangeNotifier {
         },
       );
     } else {
+      // Reset listeners to prevent duplicates
       SocketClient().offMainEvent('newMessage');
       SocketClient().offMainEvent('sendHistory');
+      // Set up listeners for new messages and message history
       SocketClient().onMainEvent('newMessage', (data) {
-        print(data);
         currentChannelsMessages.add(data);
         notifyListeners();
       });
