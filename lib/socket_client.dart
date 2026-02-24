@@ -114,6 +114,16 @@ class SocketClient {
     userSockets[serverUrl]?.on(event, callback);
   }
 
+  // Close main listener
+  void offMainEvent(String event) {
+    mainSocket.off(event);
+  }
+
+  // Close user server listener
+  void offUserEvent(String serverUrl, String event) {
+    userSockets[serverUrl]?.off(event);
+  }
+
   // Disconnect all sockets
   void dispose() {
     mainSocket.disconnect();

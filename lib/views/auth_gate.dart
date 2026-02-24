@@ -18,6 +18,8 @@ class _AuthGateState extends State<AuthGate> {
   final TextEditingController loginPasswordController = TextEditingController();
   final TextEditingController registrationUsertagController =
       TextEditingController();
+  final TextEditingController registrationUsernameController =
+      TextEditingController();
   final TextEditingController registrationEmailController =
       TextEditingController();
   final TextEditingController registrationPasswordController =
@@ -65,6 +67,7 @@ class _AuthGateState extends State<AuthGate> {
   // Perfrom registration with usertag, email, and password
   Future<void> _performRegistration(
     String usertag,
+    String username,
     String email,
     String password,
   ) async {
@@ -103,6 +106,7 @@ class _AuthGateState extends State<AuthGate> {
         // Send login
         SocketClient().sendToMain('register', {
           'user_tag': usertag,
+          'user_name': username,
           'email': email,
           'password': Credentials().hashedPassword,
         });
@@ -154,6 +158,7 @@ class _AuthGateState extends State<AuthGate> {
 
       await _performRegistration(
         registrationUsertagController.text,
+        registrationUsernameController.text,
         registrationEmailController.text,
         registrationPasswordController.text,
       );
@@ -181,6 +186,7 @@ class _AuthGateState extends State<AuthGate> {
           });
 
           if (data['success'] == true) {
+            Credentials().userId = data['user_id'];
             Navigator.pushReplacementNamed(context, '/home');
           } else {
             setState(() {
@@ -491,6 +497,30 @@ class _AuthGateState extends State<AuthGate> {
                           }
                           if (!RegExp('[a-zA-Z0-9_-]').hasMatch(value)) {
                             return 'Please enter a valid usertag';
+                          }
+                          return null;
+                        },
+                      ),
+                      const SizedBox(height: 16),
+
+                      // User Name Field
+                      TextFormField(
+                        controller: registrationUsernameController,
+                        keyboardType: TextInputType.emailAddress,
+                        decoration: InputDecoration(
+                          labelText: 'Username',
+                          hintText: 'Enter a name to be called',
+                          prefixIcon: const Icon(Icons.person),
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                        ),
+                        validator: (value) {
+                          if (value == null || value.isEmpty) {
+                            return 'Please enter a name to be called';
+                          }
+                          if (!RegExp('[a-zA-Z0-9_-]').hasMatch(value)) {
+                            return 'Please enter a valid username';
                           }
                           return null;
                         },

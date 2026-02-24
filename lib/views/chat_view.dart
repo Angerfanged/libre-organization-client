@@ -48,7 +48,7 @@ class _ChatViewState extends State<ChatView> {
         // Main content area
         Center(
           child: Text(
-            'Organization Window',
+            'Chat Window',
             style: Theme.of(context).textTheme.headlineSmall,
           ),
         ),

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:libre_organization_client/presenters/chat_presenter.dart';
 import 'package:provider/provider.dart';
 import 'package:dynamic_color/dynamic_color.dart';
 import 'package:libre_organization_client/theme/dynamic_theme.dart';
@@ -13,6 +14,7 @@ void main() {
     MultiProvider(
       providers: [
         ChangeNotifierProvider(create: (_) => OrganizationPresenter()),
+        ChangeNotifierProvider(create: (_) => ChatPresenter()),
       ],
       child: const MyApp(),
     ),

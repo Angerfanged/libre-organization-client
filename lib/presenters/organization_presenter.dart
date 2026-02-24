@@ -1,9 +1,19 @@
 import 'package:flutter/material.dart';
+import 'package:libre_organization_client/credentials.dart';
 import 'package:libre_organization_client/socket_client.dart';
+import 'dart:convert';
 
 class OrganizationPresenter extends ChangeNotifier {
   List<Map<String, dynamic>> organizations = [];
-  Map<String, String> currentChannel = {'name': '', 'type': ''};
+  Map<String, dynamic> currentTextChannel = {'id': '', 'name': '', 'type': ''};
+  Map<String, dynamic> currentVoiceChannel = {'id': '', 'name': '', 'type': ''};
+  Map<String, dynamic> currentDisplayedChannel = {
+    'id': '',
+    'name': '',
+    'type': '',
+  };
+
+  List<Map<String, dynamic>> currentChannelsMessages = [];
 
   static final OrganizationPresenter _singleton =
       OrganizationPresenter._internal();
@@ -21,260 +31,223 @@ class OrganizationPresenter extends ChangeNotifier {
     return Map();
   }
 
-  List<Map<String, dynamic>> getOrganizations() {
-    return organizations;
+  void getOrganizations() {
+    SocketClient().sendToMain('getOrganizations', {
+      'user_id': Credentials().userId,
+    });
+    SocketClient().onMainEvent('sendOrganizations', (data) {
+      final List<dynamic> jsonList = jsonDecode(data);
+      organizations = jsonList.cast<Map<String, dynamic>>();
+      notifyListeners();
+    });
   }
 
-  void updateOrganizations(Map<String, dynamic> newOrganizationData) {
-    print(organizations);
-    for (var org in organizations) {
-      if (org['serverUrl'] == newOrganizationData['serverUrl']) {
-        org = newOrganizationData;
-        notifyListeners();
-        return;
-      }
-    }
-    organizations.add(newOrganizationData);
-    print(organizations);
-    notifyListeners();
-  }
-
-  void getOrganizationsChannels(String serverUrl) {
-    SocketClient().sendToUserServer(serverUrl, 'getChannels', {});
-    SocketClient().onUserEvent(serverUrl, 'sendChannels', (data) {
-      // Process the received channel data as needed
-      if (data is List) {
-        Map org = findOrganization('serverUrl', serverUrl);
-        if (org.isEmpty) {
-          return;
-        }
+  void getOrganizationsChannels(int organizationIndex) {
+    Map org = organizations[organizationIndex];
+    // Check if the organization is self hosted
+    // If it is, get the channels from the user server. Otherwise, get the channels from the main server
+    if (org['host'] != null && org['port'] != null) {
+      SocketClient().sendToUserServer(
+        '${org['host']}:${org['port']}',
+        'getChannels',
+        {'user_id': Credentials().userId},
+      );
+      SocketClient().onUserEvent(
+        '${org['host']}:${org['port']}',
+        'sendChannels',
+        (data) {
+          if (data is List) {
+            List<Map<String, dynamic>> channels = [];
+            for (var channel in data) {
+              channels.add(channel);
+            }
+            org['channels'] = channels;
+            notifyListeners();
+          }
+        },
+      );
+    } else {
+      SocketClient().sendToMain('getChannels', {
+        'user_id': Credentials().userId,
+        'organization_id': org['id'],
+      });
+      SocketClient().onMainEvent('sendChannels', (data) {
+        final List<dynamic> jsonList = jsonDecode(data);
         List<Map<String, dynamic>> channels = [];
-        for (var channel in data) {
+        for (var channel in jsonList) {
           channels.add(channel);
         }
         org['channels'] = channels;
         notifyListeners();
-      }
-    });
+      });
+    }
   }
 
-  List<Widget> buildOrganizationChannels(Map org, BuildContext context) {
-    List<Widget> orgChannels = [];
-    if (org['channels'].length == 0) {
-      return [Center(child: Text('Could not get organization data'))];
-    }
-    for (var channel in org['channels']) {
-      switch (channel['type']) {
-        case 'text':
-          orgChannels.add(
-            TextButton.icon(
-              style: TextButton.styleFrom(
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(8.0),
-                ),
-                foregroundColor: Theme.of(context).colorScheme.onSurface,
-                padding: EdgeInsets.all(5),
-                alignment: Alignment.centerLeft,
-              ),
-              icon: Icon(Icons.tag),
-              label: Text(channel['name']),
-              onPressed: () {
-                OrganizationPresenter().currentChannel = {
-                  'name': channel['name'],
-                  'type': channel['type'],
-                };
-                ;
-                notifyListeners();
-              },
-            ),
-          );
-          break;
-        case 'voice':
-          orgChannels.add(
-            TextButton.icon(
-              style: TextButton.styleFrom(
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(8.0),
-                ),
-                foregroundColor: Theme.of(context).colorScheme.onSurface,
-                padding: EdgeInsets.all(5),
-                alignment: Alignment.centerLeft,
-              ),
-              icon: Icon(Icons.volume_up),
-              label: Text(channel['name']),
-              onPressed: () {
-                OrganizationPresenter().currentChannel = {
-                  'name': channel['name'],
-                  'type': channel['type'],
-                };
-                notifyListeners();
-              },
-            ),
-          );
-          break;
-        case 'divider':
-          orgChannels.add(
-            Row(
-              children: [
-                Expanded(child: Divider()),
-                Text(
-                  ' ' + channel['name'] + ' ',
-                  style: TextStyle(color: Theme.of(context).dividerColor),
-                ),
-                Expanded(child: Divider()),
-              ],
-            ),
-          );
-          break;
-        default:
-          continue;
-      }
-    }
-    return orgChannels;
-  }
-
-  Widget buildChannelContent(BuildContext context) {
-    switch (currentChannel['type']) {
+  void changeChannel(int organizationIndex, Map<String, dynamic> channel) {
+    var org = organizations[organizationIndex];
+    switch (channel['type']) {
       case 'text':
-        return Column(
-          children: [
-            Container(
-              color: Theme.of(context).scaffoldBackgroundColor,
-              child: Column(
-                children: [
-                  Padding(padding: EdgeInsetsGeometry.all(2.5)),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.start,
-                    crossAxisAlignment: CrossAxisAlignment.center,
-                    children: [
-                      Padding(padding: EdgeInsetsGeometry.all(2.5)),
-                      Container(
-                        decoration: BoxDecoration(
-                          color: Theme.of(context).colorScheme.primary,
-                          borderRadius: BorderRadius.circular(5),
-                        ),
-                        child: (Row(
-                          children: [
-                            Padding(padding: EdgeInsetsGeometry.all(5)),
-                            Icon(
-                              Icons.tag,
-                              color: Theme.of(context).colorScheme.onPrimary,
-                            ),
-                            Text(
-                              currentChannel['name'] ?? '',
-                              style: Theme.of(context).textTheme.titleLarge!
-                                  .copyWith(
-                                    color: Theme.of(
-                                      context,
-                                    ).colorScheme.onPrimary,
-                                  ),
-                            ),
-                            Padding(padding: EdgeInsetsGeometry.all(8)),
-                          ],
-                        )),
-                      ),
-
-                      Padding(padding: EdgeInsetsGeometry.all(12)),
-                      TextButton.icon(
-                        icon: Icon(
-                          Icons.chat,
-                          color: Theme.of(context).colorScheme.secondary,
-                        ),
-                        label: Text(
-                          'Chat',
-                          style: Theme.of(context).textTheme.titleLarge,
-                        ),
-                        onPressed: () {},
-                      ),
-                      Padding(padding: EdgeInsetsGeometry.all(12)),
-                      TextButton.icon(
-                        icon: Icon(
-                          Icons.folder,
-                          color: Theme.of(context).colorScheme.secondary,
-                        ),
-                        label: Text(
-                          'Files',
-                          style: Theme.of(context).textTheme.titleLarge,
-                        ),
-                        onPressed: () {},
-                      ),
-                      Padding(padding: EdgeInsetsGeometry.all(12)),
-                      TextButton.icon(
-                        icon: Icon(
-                          Icons.group,
-                          color: Theme.of(context).colorScheme.secondary,
-                        ),
-                        label: Text(
-                          'People',
-                          style: Theme.of(context).textTheme.titleLarge,
-                        ),
-                        onPressed: () {},
-                      ),
-                      Padding(padding: EdgeInsetsGeometry.all(12)),
-                      TextButton.icon(
-                        icon: Icon(
-                          Icons.settings,
-                          color: Theme.of(context).colorScheme.secondary,
-                        ),
-                        label: Text(
-                          'Settings',
-                          style: Theme.of(context).textTheme.titleLarge,
-                        ),
-                        onPressed: () {},
-                      ),
-                    ],
-                  ),
-                  Padding(padding: EdgeInsetsGeometry.all(2.5)),
-                ],
-              ),
-            ),
-            // Chat content goes here
-            Expanded(
-              child: Column(
-                verticalDirection: VerticalDirection.up,
-                children: [Text('Test')],
-              ),
-            ),
-            Row(
-              children: [
-                IconButton(onPressed: () {}, icon: Icon(Icons.add)),
-                Expanded(
-                  child: TextField(
-                    decoration: InputDecoration(
-                      hintText: 'Message channel',
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(10),
-                      ),
-                      contentPadding: const EdgeInsets.symmetric(
-                        vertical: 5,
-                        horizontal: 16,
-                      ),
-                    ),
-                    onSubmitted: (value) {},
-                  ),
-                ),
-                IconButton(
-                  onPressed: () {},
-                  icon: Icon(Icons.send),
-                  color: Theme.of(context).colorScheme.primary,
-                ),
-                Padding(padding: EdgeInsetsGeometry.all(5)),
-              ],
-            ),
-            Padding(padding: EdgeInsetsGeometry.all(5)),
-          ],
-        );
+        // If the organization is self hosted, we need to send the join room event to the user server. Otherwise, we send it to the main server
+        if (org['host'] != null && org['port'] != null) {
+          // Leave current room if there is one
+          if (currentTextChannel['id'] != '') {
+            SocketClient().sendToUserServer(
+              '${org['host']}:${org['port']}',
+              'leaveTextRoom',
+              {
+                'room_path':
+                    '${org['id']}-${currentTextChannel['id']}', // Room path should be organization id followed by channel id
+              },
+            );
+          }
+          // Join new room
+          SocketClient().sendToUserServer(
+            '${org['host']}:${org['port']}',
+            'joinTextRoom',
+            {
+              'room_path':
+                  '${org['id']}-${channel['id']}', // Room path should be organization id followed by channel id
+            },
+          );
+        } else {
+          // Leave current room if there is one
+          if (currentTextChannel['id'] != '') {
+            SocketClient().sendToMain('leaveTextRoom', {
+              'room_path':
+                  '${org['id']}-${currentTextChannel['id']}', // Room path should be organization id followed by channel id
+            });
+          }
+          // Join new room
+          SocketClient().sendToMain('joinTextRoom', {
+            'room_path': '${org['id']}-${channel['id']}',
+          });
+        }
+        // Update current channel
+        OrganizationPresenter().currentTextChannel = {
+          'id': channel['id'],
+          'name': channel['name'],
+          'type': channel['type'],
+        };
+        OrganizationPresenter().currentDisplayedChannel =
+            OrganizationPresenter().currentTextChannel;
+        OrganizationPresenter().currentChannelsMessages = [];
+        notifyListeners();
+        break;
       case 'voice':
-        return Column(
-          children: [
-            Expanded(child: Center(child: Text(currentChannel['name'] ?? ''))),
-            // Voice/video content goes here
-          ],
-        );
+        // If the organization is self hosted, we need to send the join room event to the user server. Otherwise, we send it to the main server
+        if (org['host'] != null && org['port'] != null) {
+          // Leave current room if there is one
+          if (currentVoiceChannel['id'] != '') {
+            SocketClient().sendToUserServer(
+              '${org['host']}:${org['port']}',
+              'leaveVoiceRoom',
+              {
+                'room_path':
+                    '${org['id']}-${currentVoiceChannel['id']}', // Room path should be organization id followed by channel id
+              },
+            );
+          }
+          // Join new room
+          SocketClient().sendToUserServer(
+            '${org['host']}:${org['port']}',
+            'joinVoiceRoom',
+            {
+              'room_path':
+                  '${org['id']}-${channel['id']}', // Room path should be organization id followed by channel id
+            },
+          );
+        } else {
+          // Leave current room if there is one
+          if (currentVoiceChannel['id'] != '') {
+            SocketClient().sendToMain('leaveVoiceRoom', {
+              'room_path':
+                  '${org['id']}-${currentVoiceChannel['id']}', // Room path should be organization id followed by channel id
+            });
+          }
+          // Join new room
+          SocketClient().sendToMain('joinVoiceRoom', {
+            'room_path': '${org['id']}-${channel['id']}',
+          });
+        }
+        OrganizationPresenter().currentVoiceChannel = {
+          'id': channel['id'],
+          'name': channel['name'],
+          'type': channel['type'],
+        };
+        OrganizationPresenter().currentDisplayedChannel =
+            OrganizationPresenter().currentVoiceChannel;
+        notifyListeners();
+        break;
       default:
-        return Column(children: [
-          ],
-        );
+        return;
+    }
+  }
+
+  void sendMessage(int organizationIndex, String message) {
+    var org = organizations[organizationIndex];
+    if (currentTextChannel['id'] == '') {
+      return;
+    }
+    if (org['host'] != null && org['port'] != null) {
+      SocketClient().sendToUserServer(
+        '${org['host']}:${org['port']}',
+        'sendMessage',
+        {
+          'room_path':
+              '${org['id']}-${currentTextChannel['id']}', // Room path should be organization id followed by channel id
+          'message': message,
+          'sender_id': Credentials().userId,
+        },
+      );
+    } else {
+      SocketClient().sendToMain('sendMessage', {
+        'room_path':
+            '${org['id']}-${currentTextChannel['id']}', // Room path should be organization id followed by channel id
+        'message': message,
+        'sender_id': Credentials().userId,
+      });
+    }
+  }
+
+  void messageListener(int organizationIndex) {
+    var org = organizations[organizationIndex];
+    if (org['host'] != null && org['port'] != null) {
+      SocketClient().offUserEvent(
+        '${org['host']}:${org['port']}',
+        'newMessage',
+      );
+      SocketClient().offUserEvent(
+        '${org['host']}:${org['port']}',
+        'sendHistory',
+      );
+      SocketClient().onUserEvent(
+        '${org['host']}:${org['port']}',
+        'newMessage',
+        (data) {
+          currentChannelsMessages.add(data);
+          notifyListeners();
+        },
+      );
+      SocketClient().onUserEvent(
+        '${org['host']}:${org['port']}',
+        'sendHistory',
+        (data) {
+          currentChannelsMessages.insertAll(0, data);
+          notifyListeners();
+        },
+      );
+    } else {
+      SocketClient().offMainEvent('newMessage');
+      SocketClient().offMainEvent('sendHistory');
+      SocketClient().onMainEvent('newMessage', (data) {
+        print(data);
+        currentChannelsMessages.add(data);
+        notifyListeners();
+      });
+      SocketClient().onMainEvent('sendHistory', (data) {
+        currentChannelsMessages.insertAll(0, data);
+        notifyListeners();
+      });
     }
   }
 }

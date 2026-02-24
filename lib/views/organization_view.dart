@@ -14,6 +14,8 @@ class _OrganizationViewState extends State<OrganizationView> {
   int _currentOrganizationIndex = -1;
   bool _showAddButton = true;
 
+  final TextEditingController _messageController = TextEditingController();
+
   List<Widget> _buildOrganizationList() {
     List<Widget> organizations = [];
     for (int i = 0; i < OrganizationPresenter().organizations.length; i++) {
@@ -24,9 +26,7 @@ class _OrganizationViewState extends State<OrganizationView> {
             setState(() {
               _currentOrganizationIndex = i;
               _showAddButton = false;
-              OrganizationPresenter().getOrganizationsChannels(
-                organization['serverUrl'],
-              );
+              OrganizationPresenter().getOrganizationsChannels(i);
             });
           },
           style: TextButton.styleFrom(
@@ -40,7 +40,7 @@ class _OrganizationViewState extends State<OrganizationView> {
           icon: ClipRRect(
             borderRadius: BorderRadius.circular(10),
             child: Image.network(
-              organization['iconUrl'],
+              'localhost:3000/public/icon.png',
               width: 35,
               height: 35,
               fit: BoxFit.cover,
@@ -66,6 +66,274 @@ class _OrganizationViewState extends State<OrganizationView> {
     }
     organizations.add(Padding(padding: EdgeInsetsGeometry.all(80)));
     return organizations;
+  }
+
+  List<Widget> _buildChannelList() {
+    List<Widget> channels = [];
+    var organization =
+        OrganizationPresenter().organizations[_currentOrganizationIndex];
+    if (organization['channels'] == null) {
+      return [Text('Could not load channels')];
+    }
+    for (var channel in organization['channels']) {
+      switch (channel['type']) {
+        case 'text':
+          channels.add(
+            TextButton.icon(
+              style: TextButton.styleFrom(
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(8.0),
+                ),
+                foregroundColor: Theme.of(context).colorScheme.onSurface,
+                padding: EdgeInsets.all(5),
+                alignment: Alignment.centerLeft,
+              ),
+              icon: Icon(Icons.tag),
+              label: Text(channel['name']),
+              onPressed: () {
+                OrganizationPresenter().changeChannel(
+                  _currentOrganizationIndex,
+                  channel,
+                );
+                OrganizationPresenter().messageListener(
+                  _currentOrganizationIndex,
+                );
+              },
+            ),
+          );
+          break;
+        case 'voice':
+          channels.add(
+            TextButton.icon(
+              style: TextButton.styleFrom(
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(8.0),
+                ),
+                foregroundColor: Theme.of(context).colorScheme.onSurface,
+                padding: EdgeInsets.all(5),
+                alignment: Alignment.centerLeft,
+              ),
+              icon: Icon(Icons.volume_up),
+              label: Text(channel['name']),
+              onPressed: () {
+                OrganizationPresenter().changeChannel(
+                  _currentOrganizationIndex,
+                  channel,
+                );
+              },
+            ),
+          );
+          break;
+        case 'divider':
+          channels.add(
+            Row(
+              children: [
+                Expanded(child: Divider()),
+                Text(
+                  ' ${channel['name']} ',
+                  style: TextStyle(color: Theme.of(context).dividerColor),
+                ),
+                Expanded(child: Divider()),
+              ],
+            ),
+          );
+          break;
+        default:
+          break;
+      }
+    }
+    return channels;
+  }
+
+  Widget _buildChannelContent() {
+    switch (OrganizationPresenter().currentDisplayedChannel['type']) {
+      case 'text':
+        return Column(
+          children: [
+            Container(
+              color: Theme.of(context).scaffoldBackgroundColor,
+              child: Column(
+                children: [
+                  Padding(padding: EdgeInsetsGeometry.all(2.5)),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.start,
+                    crossAxisAlignment: CrossAxisAlignment.center,
+                    children: [
+                      Padding(padding: EdgeInsetsGeometry.all(2.5)),
+                      Container(
+                        decoration: BoxDecoration(
+                          color: Theme.of(context).colorScheme.primary,
+                          borderRadius: BorderRadius.circular(5),
+                        ),
+                        child: (Row(
+                          children: [
+                            Padding(padding: EdgeInsetsGeometry.all(5)),
+                            Icon(
+                              Icons.tag,
+                              color: Theme.of(context).colorScheme.onPrimary,
+                            ),
+                            Text(
+                              OrganizationPresenter()
+                                      .currentDisplayedChannel['name'] ??
+                                  '',
+                              style: Theme.of(context).textTheme.titleLarge!
+                                  .copyWith(
+                                    color: Theme.of(
+                                      context,
+                                    ).colorScheme.onPrimary,
+                                  ),
+                            ),
+                            Padding(padding: EdgeInsetsGeometry.all(8)),
+                          ],
+                        )),
+                      ),
+
+                      Padding(padding: EdgeInsetsGeometry.all(12)),
+                      TextButton.icon(
+                        icon: Icon(
+                          Icons.chat,
+                          color: Theme.of(context).colorScheme.secondary,
+                        ),
+                        label: Text(
+                          'Chat',
+                          style: Theme.of(context).textTheme.titleLarge,
+                        ),
+                        onPressed: () {},
+                      ),
+                      Padding(padding: EdgeInsetsGeometry.all(12)),
+                      TextButton.icon(
+                        icon: Icon(
+                          Icons.folder,
+                          color: Theme.of(context).colorScheme.secondary,
+                        ),
+                        label: Text(
+                          'Files',
+                          style: Theme.of(context).textTheme.titleLarge,
+                        ),
+                        onPressed: () {},
+                      ),
+                      Padding(padding: EdgeInsetsGeometry.all(12)),
+                      TextButton.icon(
+                        icon: Icon(
+                          Icons.group,
+                          color: Theme.of(context).colorScheme.secondary,
+                        ),
+                        label: Text(
+                          'People',
+                          style: Theme.of(context).textTheme.titleLarge,
+                        ),
+                        onPressed: () {},
+                      ),
+                      Padding(padding: EdgeInsetsGeometry.all(12)),
+                      TextButton.icon(
+                        icon: Icon(
+                          Icons.settings,
+                          color: Theme.of(context).colorScheme.secondary,
+                        ),
+                        label: Text(
+                          'Settings',
+                          style: Theme.of(context).textTheme.titleLarge,
+                        ),
+                        onPressed: () {},
+                      ),
+                    ],
+                  ),
+                  Padding(padding: EdgeInsetsGeometry.all(2.5)),
+                ],
+              ),
+            ),
+            // Chat content goes here
+            Expanded(
+              child: ListView.builder(
+                reverse: true,
+                itemCount:
+                    OrganizationPresenter().currentChannelsMessages.length,
+                itemBuilder: (context, index) {
+                  var message =
+                      OrganizationPresenter()
+                          .currentChannelsMessages[OrganizationPresenter()
+                              .currentChannelsMessages
+                              .length -
+                          1 -
+                          index];
+                  return ListTile(
+                    leading: CircleAvatar(
+                      backgroundColor: Theme.of(context).colorScheme.primary,
+                      child: Text(
+                        'JD',
+                        style: Theme.of(context).textTheme.labelLarge,
+                      ),
+                    ),
+                    title: Text(message['sender_id'].toString()),
+                    subtitle: Text(message['message']),
+                  );
+                },
+              ),
+            ),
+            Row(
+              children: [
+                IconButton(onPressed: () {}, icon: Icon(Icons.add)),
+                Expanded(
+                  child: TextField(
+                    controller: _messageController,
+                    decoration: InputDecoration(
+                      hintText: 'Message channel',
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      contentPadding: const EdgeInsets.symmetric(
+                        vertical: 5,
+                        horizontal: 16,
+                      ),
+                    ),
+                    onSubmitted: (value) {
+                      if (value.trim().isEmpty) return;
+                      // Send message to server
+                      OrganizationPresenter().sendMessage(
+                        _currentOrganizationIndex,
+                        value.trim(),
+                      );
+                      _messageController.clear();
+                    },
+                  ),
+                ),
+                IconButton(
+                  onPressed: () {
+                    if (_messageController.text.trim().isEmpty) return;
+                    // Send message to server
+                    OrganizationPresenter().sendMessage(
+                      _currentOrganizationIndex,
+                      _messageController.text.trim(),
+                    );
+                    _messageController.clear();
+                  },
+                  icon: Icon(Icons.send),
+                  color: Theme.of(context).colorScheme.primary,
+                ),
+                Padding(padding: EdgeInsetsGeometry.all(5)),
+              ],
+            ),
+            Padding(padding: EdgeInsetsGeometry.all(5)),
+          ],
+        );
+      case 'voice':
+        return Column(
+          children: [
+            Expanded(
+              child: Center(
+                child: Text(
+                  OrganizationPresenter().currentDisplayedChannel['name'] ?? '',
+                ),
+              ),
+            ),
+            // Voice/video content goes here
+          ],
+        );
+      default:
+        return Column(children: [
+          ],
+        );
+    }
   }
 
   @override
@@ -134,12 +402,7 @@ class _OrganizationViewState extends State<OrganizationView> {
                             ),
                             Column(
                               crossAxisAlignment: CrossAxisAlignment.stretch,
-                              children: OrganizationPresenter()
-                                  .buildOrganizationChannels(
-                                    value
-                                        .organizations[_currentOrganizationIndex],
-                                    context,
-                                  ),
+                              children: _buildChannelList(),
                             ),
                           ],
                         );
@@ -175,7 +438,7 @@ class _OrganizationViewState extends State<OrganizationView> {
         Expanded(
           child: Consumer<OrganizationPresenter>(
             builder: (context, value, child) {
-              return OrganizationPresenter().buildChannelContent(context);
+              return _buildChannelContent();
             },
           ),
         ),

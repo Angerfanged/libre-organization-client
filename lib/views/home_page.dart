@@ -2,8 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:libre_organization_client/credentials.dart';
 import 'package:libre_organization_client/socket_client.dart';
 
-import 'dart:convert';
-import 'package:flutter/services.dart' as root_bundle;
 import 'package:libre_organization_client/views/chat_view.dart';
 
 import 'package:libre_organization_client/views/organization_view.dart';
@@ -24,53 +22,8 @@ class _HomePageState extends State<HomePage> {
   @override
   void initState() {
     super.initState();
-    _loadUserData();
-  }
-
-  Future<void> _loadUserData() async {
-    try {
-      // Load JSON file asynchronously
-      final jsonString = await root_bundle.rootBundle.loadString(
-        'assets/user_data.json',
-      );
-      setState(() {
-        userData = jsonDecode(jsonString);
-      });
-
-      // Extract self-hosted organizations after data is loaded
-      final userEmail = Credentials().email;
-      final List orgList =
-          userData[userEmail]['self_hosted_organizations'] as List;
-      // Parse each organization entry and connect to it
-      for (var org in orgList) {
-        Map<String, dynamic> orgData = {
-          'name': org['name'],
-          'host': org['host'],
-          'port': org['port'],
-          'use_secure_connection': org['use_secure_connection'] == "true",
-          'serverUrl':
-              (org['use_secure_connection'] == "true" ? 'https' : 'http') +
-              '://' +
-              org['host'] +
-              ':' +
-              org['port'].toString(),
-          'channels': [],
-          'iconUrl':
-              (org['use_secure_connection'] == "true" ? 'https' : 'http') +
-              '://' +
-              org['host'] +
-              ':' +
-              org['port'].toString() +
-              '/public/icon.png',
-        };
-        OrganizationPresenter().updateOrganizations(orgData);
-        SocketClient().connectToUserServer(orgData['serverUrl']);
-      }
-    } catch (e) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('Error loading user data: $e')));
-    }
+    OrganizationPresenter()
+        .getOrganizations(); // Fetch organizations on initialization
   }
 
   Widget _buildContent() {
