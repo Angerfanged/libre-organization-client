@@ -23,10 +23,6 @@ class SocketClient {
 
     mainSocket.onConnect((_) {
       print('Connected to main server: $mainServerUrl');
-      mainSocket.emit('login', {
-        'email': Credentials().email,
-        "password": Credentials().hashedPassword,
-      });
     });
 
     mainSocket.onDisconnect((_) {
@@ -49,10 +45,6 @@ class SocketClient {
 
     socket.onConnect((_) {
       print('Connected to user server: $serverUrl');
-      socket.emit('login', {
-        'email': Credentials().email,
-        "password": Credentials().hashedPassword,
-      });
     });
 
     socket.onDisconnect((_) {

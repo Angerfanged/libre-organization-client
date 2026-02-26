@@ -29,6 +29,8 @@ class _AuthGateState extends State<AuthGate> {
   bool _isLoading = false;
   bool _showForm = true; // Track if we should show the form or loading
 
+  final String _mainServerUrl = 'http://localhost:3000';
+
   @override
   void initState() {
     super.initState();
@@ -73,7 +75,7 @@ class _AuthGateState extends State<AuthGate> {
   ) async {
     try {
       // Connect to server
-      SocketClient().initMainConnection('http://localhost:3000');
+      SocketClient().initMainConnection(_mainServerUrl);
       try {
         await SocketClient().waitForConnection(SocketClient().mainSocket);
       } catch (e) {
@@ -169,7 +171,7 @@ class _AuthGateState extends State<AuthGate> {
   Future<void> _performLogin(String email, String password) async {
     try {
       // Connect to server
-      SocketClient().initMainConnection('http://localhost:3000');
+      SocketClient().initMainConnection(_mainServerUrl);
       try {
         await SocketClient().waitForConnection(SocketClient().mainSocket);
       } catch (e) {

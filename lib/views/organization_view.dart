@@ -15,6 +15,13 @@ class _OrganizationViewState extends State<OrganizationView> {
   bool _showAddButton = true;
 
   final TextEditingController _messageController = TextEditingController();
+  final ScrollController _organizationScrollController = ScrollController();
+
+  @override
+  void initState() {
+    super.initState();
+    _organizationScrollController.addListener(_organizationScrollListener);
+  }
 
   List<Widget> _buildOrganizationList() {
     List<Widget> organizations = [];
@@ -95,7 +102,7 @@ class _OrganizationViewState extends State<OrganizationView> {
                   _currentOrganizationIndex,
                   channel,
                 );
-                OrganizationPresenter().messageListener(
+                OrganizationPresenter().getMessageHistory(
                   _currentOrganizationIndex,
                 );
               },
@@ -245,6 +252,7 @@ class _OrganizationViewState extends State<OrganizationView> {
             // Chat content goes here
             Expanded(
               child: ListView.builder(
+                controller: _organizationScrollController,
                 reverse: true,
                 itemCount:
                     OrganizationPresenter().currentChannelsMessages.length,
@@ -264,8 +272,8 @@ class _OrganizationViewState extends State<OrganizationView> {
                         style: Theme.of(context).textTheme.labelLarge,
                       ),
                     ),
-                    title: Text(message['sender_id'].toString()),
-                    subtitle: Text(message['message']),
+                    title: Text(message['author_id'].toString()),
+                    subtitle: Text(message['content'].toString()),
                   );
                 },
               ),
@@ -333,6 +341,15 @@ class _OrganizationViewState extends State<OrganizationView> {
         return Column(children: [
           ],
         );
+    }
+  }
+
+  void _organizationScrollListener() {
+    if (_organizationScrollController.offset >=
+            _organizationScrollController.position.maxScrollExtent &&
+        !_organizationScrollController.position.outOfRange) {
+      // Load more messages when scrolled to the top
+      OrganizationPresenter().getMessageHistory(_currentOrganizationIndex);
     }
   }
 

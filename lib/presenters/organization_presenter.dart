@@ -15,6 +15,8 @@ class OrganizationPresenter extends ChangeNotifier {
 
   List<Map<String, dynamic>> currentChannelsMessages = [];
 
+  bool _fetchingOldPosts = false;
+
   static final OrganizationPresenter _singleton =
       OrganizationPresenter._internal();
 
@@ -37,7 +39,9 @@ class OrganizationPresenter extends ChangeNotifier {
     });
     SocketClient().onMainEvent('sendOrganizations', (data) {
       final List<dynamic> jsonList = jsonDecode(data);
-      organizations = jsonList.cast<Map<String, dynamic>>();
+      organizations = jsonList
+          .map((item) => Map<String, dynamic>.from(item as Map))
+          .toList();
       notifyListeners();
     });
   }
@@ -56,14 +60,12 @@ class OrganizationPresenter extends ChangeNotifier {
         '${org['host']}:${org['port']}',
         'sendChannels',
         (data) {
-          if (data is List) {
-            List<Map<String, dynamic>> channels = [];
-            for (var channel in data) {
-              channels.add(channel);
-            }
-            org['channels'] = channels;
-            notifyListeners();
-          }
+          final List<dynamic> jsonList = jsonDecode(data);
+          final List<Map<String, dynamic>> channels = jsonList
+              .map((item) => Map<String, dynamic>.from(item as Map))
+              .toList();
+          org['channels'] = channels;
+          notifyListeners();
         },
       );
     } else {
@@ -73,10 +75,9 @@ class OrganizationPresenter extends ChangeNotifier {
       });
       SocketClient().onMainEvent('sendChannels', (data) {
         final List<dynamic> jsonList = jsonDecode(data);
-        List<Map<String, dynamic>> channels = [];
-        for (var channel in jsonList) {
-          channels.add(channel);
-        }
+        final List<Map<String, dynamic>> channels = jsonList
+            .map((item) => Map<String, dynamic>.from(item as Map))
+            .toList();
         org['channels'] = channels;
         notifyListeners();
       });
@@ -95,8 +96,8 @@ class OrganizationPresenter extends ChangeNotifier {
               '${org['host']}:${org['port']}',
               'leaveTextRoom',
               {
-                'room_path':
-                    '${org['id']}-${currentTextChannel['id']}', // Room path should be organization id followed by channel id
+                'organization_id': org['id'],
+                'channel_id': currentTextChannel['id'],
               },
             );
           }
@@ -104,22 +105,20 @@ class OrganizationPresenter extends ChangeNotifier {
           SocketClient().sendToUserServer(
             '${org['host']}:${org['port']}',
             'joinTextRoom',
-            {
-              'room_path':
-                  '${org['id']}-${channel['id']}', // Room path should be organization id followed by channel id
-            },
+            {'organization_id': org['id'], 'channel_id': channel['id']},
           );
         } else {
           // Leave current room if there is one
           if (currentTextChannel['id'] != '') {
             SocketClient().sendToMain('leaveTextRoom', {
-              'room_path':
-                  '${org['id']}-${currentTextChannel['id']}', // Room path should be organization id followed by channel id
+              'organization_id': org['id'],
+              'channel_id': currentTextChannel['id'],
             });
           }
           // Join new room
           SocketClient().sendToMain('joinTextRoom', {
-            'room_path': '${org['id']}-${channel['id']}',
+            'organization_id': org['id'],
+            'channel_id': channel['id'],
           });
         }
         // Update current channel
@@ -131,6 +130,7 @@ class OrganizationPresenter extends ChangeNotifier {
         OrganizationPresenter().currentDisplayedChannel =
             OrganizationPresenter().currentTextChannel;
         OrganizationPresenter().currentChannelsMessages = [];
+        messageListener(organizationIndex);
         notifyListeners();
         break;
       case 'voice':
@@ -142,8 +142,8 @@ class OrganizationPresenter extends ChangeNotifier {
               '${org['host']}:${org['port']}',
               'leaveVoiceRoom',
               {
-                'room_path':
-                    '${org['id']}-${currentVoiceChannel['id']}', // Room path should be organization id followed by channel id
+                'organization_id': org['id'],
+                'channel_id': currentVoiceChannel['id'],
               },
             );
           }
@@ -151,22 +151,20 @@ class OrganizationPresenter extends ChangeNotifier {
           SocketClient().sendToUserServer(
             '${org['host']}:${org['port']}',
             'joinVoiceRoom',
-            {
-              'room_path':
-                  '${org['id']}-${channel['id']}', // Room path should be organization id followed by channel id
-            },
+            {'organization_id': org['id'], 'channel_id': channel['id']},
           );
         } else {
           // Leave current room if there is one
           if (currentVoiceChannel['id'] != '') {
             SocketClient().sendToMain('leaveVoiceRoom', {
-              'room_path':
-                  '${org['id']}-${currentVoiceChannel['id']}', // Room path should be organization id followed by channel id
+              'organization_id': org['id'],
+              'channel_id': currentVoiceChannel['id'],
             });
           }
           // Join new room
           SocketClient().sendToMain('joinVoiceRoom', {
-            'room_path': '${org['id']}-${channel['id']}',
+            'organization_id': org['id'],
+            'channel_id': channel['id'],
           });
         }
         OrganizationPresenter().currentVoiceChannel = {
@@ -176,11 +174,13 @@ class OrganizationPresenter extends ChangeNotifier {
         };
         OrganizationPresenter().currentDisplayedChannel =
             OrganizationPresenter().currentVoiceChannel;
+        messageListener(organizationIndex);
         notifyListeners();
         break;
       default:
-        return;
+        break;
     }
+    _fetchingOldPosts = false;
   }
 
   void sendMessage(int organizationIndex, String message) {
@@ -189,23 +189,60 @@ class OrganizationPresenter extends ChangeNotifier {
       return;
     }
     if (org['host'] != null && org['port'] != null) {
+      SocketClient()
+          .sendToUserServer('${org['host']}:${org['port']}', 'sendMessage', {
+            'organization_id': org['id'],
+            'channel_id': currentTextChannel['id'],
+            'content': message,
+            'author_id': Credentials().userId,
+          });
+    } else {
+      SocketClient().sendToMain('sendMessage', {
+        'organization_id': org['id'],
+        'channel_id': currentTextChannel['id'],
+        'content': message,
+        'author_id': Credentials().userId,
+      });
+    }
+  }
+
+  void getMessageHistory(int organizationIndex) {
+    var org = organizations[organizationIndex];
+    if (currentTextChannel['id'] == '') {
+      return;
+    }
+    // Prevent multiple simultaneous fetches of posts history
+    if (_fetchingOldPosts) {
+      return;
+    }
+    _fetchingOldPosts = true;
+    if (org['host'] != null && org['port'] != null) {
       SocketClient().sendToUserServer(
         '${org['host']}:${org['port']}',
-        'sendMessage',
+        'getHistory',
         {
-          'room_path':
-              '${org['id']}-${currentTextChannel['id']}', // Room path should be organization id followed by channel id
-          'message': message,
-          'sender_id': Credentials().userId,
+          'organization_id': org['id'],
+          'channel_id': currentTextChannel['id'],
+          'last_post_id':
+              currentChannelsMessages[0]['id'], // Send the id of the oldest post we have to fetch posts before it
         },
       );
     } else {
-      SocketClient().sendToMain('sendMessage', {
-        'room_path':
-            '${org['id']}-${currentTextChannel['id']}', // Room path should be organization id followed by channel id
-        'message': message,
-        'sender_id': Credentials().userId,
-      });
+      if (currentChannelsMessages.isEmpty) {
+        SocketClient().sendToMain('getHistory', {
+          'organization_id': org['id'],
+          'channel_id': currentTextChannel['id'],
+          'last_post_id':
+              null, // If there are no messages, fetch the latest messages
+        });
+      } else {
+        SocketClient().sendToMain('getHistory', {
+          'organization_id': org['id'],
+          'channel_id': currentTextChannel['id'],
+          'last_post_id':
+              currentChannelsMessages[0]['id'], // Send the id of the oldest post we have to fetch posts before it
+        });
+      }
     }
   }
 
@@ -226,7 +263,10 @@ class OrganizationPresenter extends ChangeNotifier {
         '${org['host']}:${org['port']}',
         'newMessage',
         (data) {
-          currentChannelsMessages.add(data);
+          final Map<String, dynamic> message = Map<String, dynamic>.from(
+            data as Map,
+          );
+          currentChannelsMessages.add(message);
           notifyListeners();
         },
       );
@@ -234,8 +274,15 @@ class OrganizationPresenter extends ChangeNotifier {
         '${org['host']}:${org['port']}',
         'sendHistory',
         (data) {
-          currentChannelsMessages.insertAll(0, data);
+          final List<dynamic> jsonList = data is String
+              ? jsonDecode(data)
+              : data;
+          final List<Map<String, dynamic>> posts = jsonList
+              .map((item) => Map<String, dynamic>.from(item as Map))
+              .toList();
+          currentChannelsMessages.insertAll(0, posts);
           notifyListeners();
+          _fetchingOldPosts = false;
         },
       );
     } else {
@@ -244,12 +291,20 @@ class OrganizationPresenter extends ChangeNotifier {
       SocketClient().offMainEvent('sendHistory');
       // Set up listeners for new messages and message history
       SocketClient().onMainEvent('newMessage', (data) {
-        currentChannelsMessages.add(data);
+        final Map<String, dynamic> message = Map<String, dynamic>.from(
+          data as Map,
+        );
+        currentChannelsMessages.add(message);
         notifyListeners();
       });
       SocketClient().onMainEvent('sendHistory', (data) {
-        currentChannelsMessages.insertAll(0, data);
+        final List<dynamic> jsonList = data is String ? jsonDecode(data) : data;
+        final List<Map<String, dynamic>> posts = jsonList
+            .map((item) => Map<String, dynamic>.from(item as Map))
+            .toList();
+        currentChannelsMessages.insertAll(0, posts);
         notifyListeners();
+        _fetchingOldPosts = false;
       });
     }
   }
