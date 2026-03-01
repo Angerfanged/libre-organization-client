@@ -6,6 +6,7 @@ import 'package:libre_organization_client/theme/dynamic_theme.dart';
 
 import 'package:libre_organization_client/views/auth_gate.dart';
 import 'package:libre_organization_client/views/home_page.dart';
+import 'package:libre_organization_client/presenters/file_presenter.dart';
 
 import 'package:libre_organization_client/presenters/organization_presenter.dart';
 
@@ -15,6 +16,7 @@ void main() {
       providers: [
         ChangeNotifierProvider(create: (_) => OrganizationPresenter()),
         ChangeNotifierProvider(create: (_) => ChatPresenter()),
+        ChangeNotifierProvider(create: (_) => FilePresenter()),
       ],
       child: const MyApp(),
     ),

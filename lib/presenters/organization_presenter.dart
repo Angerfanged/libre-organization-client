@@ -207,6 +207,9 @@ class OrganizationPresenter extends ChangeNotifier {
   }
 
   void getMessageHistory(int organizationIndex) {
+    if (organizationIndex < 0 || organizationIndex >= organizations.length) {
+      return;
+    }
     var org = organizations[organizationIndex];
     if (currentTextChannel['id'] == '') {
       return;

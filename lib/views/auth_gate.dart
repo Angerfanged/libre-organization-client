@@ -238,8 +238,8 @@ class _AuthGateState extends State<AuthGate> {
       final storage = FlutterSecureStorage();
 
       // Save credentials securely
-      await storage.write(key: 'email', value: loginEmailController.text);
-      await storage.write(key: 'password', value: loginPasswordController.text);
+      storage.write(key: 'email', value: loginEmailController.text);
+      storage.write(key: 'password', value: loginPasswordController.text);
 
       // Set login data
       Credentials().email = loginEmailController.text;
