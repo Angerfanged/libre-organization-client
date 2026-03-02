@@ -27,6 +27,7 @@ class _OrganizationViewState extends State<OrganizationView> {
   final TextEditingController _messageController = TextEditingController();
   final FocusNode _focusNode = FocusNode();
   final ScrollController _organizationScrollController = ScrollController();
+  final GlobalKey<PopupMenuButtonState> _popupAddItemMenuKey = GlobalKey();
 
   // File watching state
   final Map<int, FileSystemEntity> _watchedFiles = {};
@@ -271,7 +272,7 @@ class _OrganizationViewState extends State<OrganizationView> {
                           color: Theme.of(context).colorScheme.secondary,
                         ),
                         label: Text(
-                          'People',
+                          'Tasks',
                           style: Theme.of(context).textTheme.titleLarge,
                         ),
                         onPressed: () {
@@ -287,7 +288,7 @@ class _OrganizationViewState extends State<OrganizationView> {
                           color: Theme.of(context).colorScheme.secondary,
                         ),
                         label: Text(
-                          'Settings',
+                          'People',
                           style: Theme.of(context).textTheme.titleLarge,
                         ),
                         onPressed: () {
@@ -424,41 +425,55 @@ class _OrganizationViewState extends State<OrganizationView> {
                   ),*/
                   child: Row(
                     children: [
-                      ElevatedButton.icon(
-                        icon: Icon(Icons.upload_file),
-                        label: Text('Upload File'),
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: Theme.of(
-                            context,
-                          ).colorScheme.surface,
-                          textStyle: TextStyle(fontSize: 20),
-                          iconSize: 20,
+                      PopupMenuButton(
+                        key: _popupAddItemMenuKey,
+                        child: ElevatedButton.icon(
+                          icon: Icon(Icons.add),
+                          label: Text('Add'),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: Theme.of(
+                              context,
+                            ).colorScheme.surface,
+                            textStyle: TextStyle(fontSize: 20),
+                            iconSize: 20,
+                          ),
+                          onPressed: () => _popupAddItemMenuKey.currentState
+                              ?.showButtonMenu(),
                         ),
-                        onPressed: () => _uploadFile(filePresenter),
+                        tooltip: 'Add File or Folder',
+                        itemBuilder: (context) => [
+                          PopupMenuItem(
+                            child: ListTile(
+                              leading: Icon(Icons.upload_file),
+                              title: Text('Upload File'),
+                            ),
+                            onTap: () => _uploadFilePickerFiles(filePresenter),
+                          ),
+                          PopupMenuItem(
+                            child: ListTile(
+                              leading: Icon(Icons.folder),
+                              title: Text('Upload Folder'),
+                            ),
+                            onTap: () => _uploadFolder(filePresenter),
+                          ),
+                          PopupMenuItem(
+                            child: ListTile(
+                              leading: Icon(Icons.create_new_folder),
+                              title: Text('New Folder'),
+                            ),
+                            onTap: () {
+                              final channel = OrganizationPresenter()
+                                  .currentDisplayedChannel;
+                              _showCreateFolderDialog(
+                                filePresenter,
+                                filePresenter.currentFolderId,
+                                channel['id'],
+                              );
+                            },
+                          ),
+                        ],
                       ),
-                      SizedBox(width: 8),
-                      ElevatedButton.icon(
-                        icon: Icon(Icons.create_new_folder),
-                        label: Text('New Folder'),
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: Theme.of(
-                            context,
-                          ).colorScheme.surface,
-                          textStyle: TextStyle(fontSize: 20),
-                          iconSize: 20,
-                        ),
-                        onPressed: filePresenter.isLoading
-                            ? null
-                            : () {
-                                final channel = OrganizationPresenter()
-                                    .currentDisplayedChannel;
-                                _showCreateFolderDialog(
-                                  filePresenter,
-                                  filePresenter.currentFolderId,
-                                  channel['id'],
-                                );
-                              },
-                      ),
+
                       if (filePresenter.uploadProgress > 0 &&
                           filePresenter.uploadProgress < 1)
                         SizedBox(
@@ -487,13 +502,13 @@ class _OrganizationViewState extends State<OrganizationView> {
       case 2:
         return Column(
           children: [
-            Expanded(child: Center(child: Text('People content goes here'))),
+            Expanded(child: Center(child: Text('Tasks content goes here'))),
           ],
         );
       case 3:
         return Column(
           children: [
-            Expanded(child: Center(child: Text('Settings content goes here'))),
+            Expanded(child: Center(child: Text('People content goes here'))),
           ],
         );
       default:
@@ -517,45 +532,6 @@ class _OrganizationViewState extends State<OrganizationView> {
           .organizations[_currentOrganizationIndex]['id'],
       channelId: channel['id'],
     );
-  }
-
-  Future<void> _uploadFile(FilePresenter filePresenter) async {
-    try {
-      // Show a dialog to choose between file and folder upload
-      final uploadType = await showDialog<String>(
-        context: context,
-        builder: (context) => AlertDialog(
-          title: Text('Upload'),
-          content: Text('What would you like to upload?'),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context, 'file'),
-              child: Text('File(s)'),
-            ),
-            TextButton(
-              onPressed: () => Navigator.pop(context, 'folder'),
-              child: Text('Folder'),
-            ),
-            TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: Text('Cancel'),
-            ),
-          ],
-        ),
-      );
-
-      if (uploadType == null) return;
-
-      if (uploadType == 'folder') {
-        await _uploadFolder(filePresenter);
-      } else {
-        await _uploadFilePickerFiles(filePresenter);
-      }
-    } catch (e) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('Error uploading: $e')));
-    }
   }
 
   Future<void> _uploadFilePickerFiles(FilePresenter filePresenter) async {
@@ -860,7 +836,7 @@ class _OrganizationViewState extends State<OrganizationView> {
                         },
                         style: TextButton.styleFrom(
                           backgroundColor: isDraggingOver
-                              ? Colors.amber.withOpacity(0.2)
+                              ? Colors.amber.shade300.withOpacity(0.2)
                               : Colors.transparent,
                         ),
                         child: Text('Root'),
@@ -904,7 +880,7 @@ class _OrganizationViewState extends State<OrganizationView> {
                               },
                               style: TextButton.styleFrom(
                                 backgroundColor: isDraggingOver
-                                    ? Colors.amber.withOpacity(0.2)
+                                    ? Colors.amber.shade300.withOpacity(0.2)
                                     : Colors.transparent,
                               ),
                               child: Text(folder['name']),
@@ -960,7 +936,7 @@ class _OrganizationViewState extends State<OrganizationView> {
                           child: Row(
                             mainAxisSize: MainAxisSize.min,
                             children: [
-                              Icon(Icons.folder, color: Colors.amber),
+                              Icon(Icons.folder, color: Colors.amber.shade300),
                               SizedBox(width: 8),
                               Text(item['file_name'] ?? 'Unnamed'),
                             ],
@@ -977,7 +953,10 @@ class _OrganizationViewState extends State<OrganizationView> {
                           vertical: 4,
                         ),
                         child: ListTile(
-                          leading: Icon(Icons.folder, color: Colors.amber),
+                          leading: Icon(
+                            Icons.folder,
+                            color: Colors.amber.shade300,
+                          ),
                           title: Text(item['file_name'] ?? 'Unnamed'),
                         ),
                       ),
@@ -1011,8 +990,8 @@ class _OrganizationViewState extends State<OrganizationView> {
                             leading: Icon(
                               Icons.folder,
                               color: isDraggingOver
-                                  ? Colors.amber.withOpacity(0.7)
-                                  : Colors.amber,
+                                  ? Colors.amber.shade300.withOpacity(0.7)
+                                  : Colors.amber.shade300,
                             ),
                             title: Text(item['file_name'] ?? 'Unnamed'),
                             subtitle: isDraggingOver
@@ -1259,11 +1238,26 @@ class _OrganizationViewState extends State<OrganizationView> {
         return AlertDialog(
           title: Text('Create New Folder'),
           content: TextField(
+            autofocus: true,
             controller: folderNameController,
             decoration: InputDecoration(
               labelText: 'Folder Name',
               hintText: 'Enter folder name',
             ),
+            onSubmitted: (value) {
+              if (folderNameController.text.trim().isNotEmpty) {
+                filePresenter.createFolder(
+                  organizationId: OrganizationPresenter()
+                      .organizations[_currentOrganizationIndex]['id'],
+                  authorId: Credentials().userId,
+                  channelId: channelId,
+                  folderName: folderNameController.text.trim(),
+                  parentFolderId: parentFolderId,
+                );
+                Navigator.pop(context);
+                _loadChannelFiles();
+              }
+            },
           ),
           actions: [
             TextButton(
@@ -1285,147 +1279,14 @@ class _OrganizationViewState extends State<OrganizationView> {
                   _loadChannelFiles();
                 }
               },
-              child: Text('Create'),
-            ),
-          ],
-        );
-      },
-    );
-  }
-
-  void _showMoveFileDialog(
-    FilePresenter filePresenter,
-    Map<String, dynamic> fileItem,
-    int channelId,
-  ) {
-    int? selectedFolderId;
-    int? currentDialogFolderId;
-
-    showDialog(
-      context: context,
-      builder: (context) {
-        return StatefulBuilder(
-          builder: (context, setState) {
-            return AlertDialog(
-              title: Text('Move: ${fileItem['file_name']}'),
-              content: SizedBox(
-                width: 400,
-                height: 300,
-                child: Column(
-                  children: [
-                    // Breadcrumb navigation for folder selection
-                    SingleChildScrollView(
-                      scrollDirection: Axis.horizontal,
-                      child: Padding(
-                        padding: EdgeInsets.only(bottom: 16.0),
-                        child: Row(
-                          children: [
-                            TextButton(
-                              onPressed: () {
-                                setState(() {
-                                  currentDialogFolderId = null;
-                                  selectedFolderId = null;
-                                });
-                              },
-                              child: Text(
-                                'Root',
-                                style: TextStyle(
-                                  fontWeight: currentDialogFolderId == null
-                                      ? FontWeight.bold
-                                      : FontWeight.normal,
-                                ),
-                              ),
-                            ),
-                            if (filePresenter.folderPath.isNotEmpty)
-                              ...filePresenter.folderPath.map(
-                                (folder) => Row(
-                                  children: [
-                                    Icon(Icons.chevron_right, size: 16),
-                                    TextButton(
-                                      onPressed: () {
-                                        setState(() {
-                                          currentDialogFolderId = folder['id'];
-                                          selectedFolderId = folder['id'];
-                                        });
-                                      },
-                                      child: Text(
-                                        folder['name'],
-                                        style: TextStyle(
-                                          fontWeight:
-                                              currentDialogFolderId ==
-                                                  folder['id']
-                                              ? FontWeight.bold
-                                              : FontWeight.normal,
-                                        ),
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                          ],
-                        ),
-                      ),
-                    ),
-                    Divider(),
-                    // List of folders in current location
-                    Expanded(
-                      child: ListView(
-                        children: [
-                          ListTile(
-                            leading: Icon(Icons.folder),
-                            title: Text('Move to current location'),
-                            onTap: () {
-                              setState(() {
-                                selectedFolderId = currentDialogFolderId;
-                              });
-                            },
-                            selected: selectedFolderId == currentDialogFolderId,
-                          ),
-                          ...filePresenter.files
-                              .where((item) => item['is_folder'] != 0)
-                              .map(
-                                (folder) => ListTile(
-                                  leading: Icon(Icons.folder),
-                                  title: Text(folder['file_name'] ?? 'Unnamed'),
-                                  onTap: () {
-                                    setState(() {
-                                      selectedFolderId = folder['id'];
-                                      currentDialogFolderId = folder['id'];
-                                    });
-                                  },
-                                  selected: selectedFolderId == folder['id'],
-                                ),
-                              ),
-                        ],
-                      ),
-                    ),
-                  ],
+              child: Text(
+                'Create',
+                style: TextStyle(
+                  color: Theme.of(context).colorScheme.onPrimary,
                 ),
               ),
-              actions: [
-                TextButton(
-                  onPressed: () => Navigator.pop(context),
-                  child: Text('Cancel'),
-                ),
-                ElevatedButton(
-                  onPressed: selectedFolderId != fileItem['parent_id']
-                      ? () {
-                          filePresenter.moveFile(
-                            organizationId: OrganizationPresenter()
-                                .organizations[_currentOrganizationIndex]['id'],
-                            fileId: fileItem['id'],
-                            channelId: channelId,
-                            newParentId: selectedFolderId,
-                          );
-                          _loadChannelFiles();
-                          Navigator.pop(context);
-                        }
-                      : null,
-                  child: Text('Move'),
-                ),
-              ],
-            );
-          },
+            ),
+          ],
         );
       },
     );
