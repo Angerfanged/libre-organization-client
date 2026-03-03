@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:libre_organization_client/credentials.dart';
 import 'package:libre_organization_client/socket_client.dart';
+import 'package:provider/provider.dart';
 
 import 'package:libre_organization_client/views/chat_view.dart';
 
+import 'package:libre_organization_client/views/user_settings_view.dart';
 import 'package:libre_organization_client/views/organization_view.dart';
 import 'package:libre_organization_client/presenters/organization_presenter.dart';
 
@@ -22,8 +24,11 @@ class _HomePageState extends State<HomePage> {
   @override
   void initState() {
     super.initState();
-    OrganizationPresenter()
-        .getOrganizations(); // Fetch organizations on initialization
+    final presenter = Provider.of<OrganizationPresenter>(
+      context,
+      listen: false,
+    );
+    presenter.getOrganizations(); // Fetch organizations on initialization
   }
 
   Widget _buildContent() {
@@ -119,77 +124,103 @@ class _HomePageState extends State<HomePage> {
           ),
           // Main Content
           Expanded(
-            child: Column(
-              children: [
-                // Top Bar
-                Container(
-                  padding: const EdgeInsets.all(16),
-                  decoration: BoxDecoration(
-                    border: Border(
-                      bottom: BorderSide(color: Colors.grey.withOpacity(0.2)),
+            child: Consumer<OrganizationPresenter>(
+              builder: (context, presenter, child) {
+                return Column(
+                  children: [
+                    // Top Bar
+                    Container(
+                      padding: const EdgeInsets.all(16),
+                      decoration: BoxDecoration(
+                        border: Border(
+                          bottom: BorderSide(
+                            color: Colors.grey.withOpacity(0.2),
+                          ),
+                        ),
+                      ),
+                      child: Row(
+                        children: [
+                          // Search Bar
+                          Expanded(
+                            child: TextField(
+                              decoration: InputDecoration(
+                                hintText: 'Search...',
+                                prefixIcon: const Icon(Icons.search),
+                                border: OutlineInputBorder(
+                                  borderRadius: BorderRadius.circular(8),
+                                ),
+                                contentPadding: const EdgeInsets.symmetric(
+                                  vertical: 8,
+                                  horizontal: 16,
+                                ),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 16),
+                          // User Profile with Menu
+                          OutlinedButton(
+                            onPressed: () {
+                              Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                  builder: (context) =>
+                                      const UserSettingsView(),
+                                ),
+                              );
+                            },
+                            style: OutlinedButton.styleFrom(
+                              shape: const CircleBorder(),
+                              padding: EdgeInsets.zero,
+                              side: BorderSide(
+                                color: Theme.of(
+                                  context,
+                                ).colorScheme.outline.withOpacity(0.5),
+                              ),
+                            ),
+                            child: Consumer<OrganizationPresenter>(
+                              builder: (context, presenter, child) {
+                                final pfpPath =
+                                    presenter.currentUser?['pfp_path'];
+                                if (pfpPath != null) {
+                                  return CircleAvatar(
+                                    backgroundImage: NetworkImage(
+                                      'http://localhost:3000/user_files$pfpPath',
+                                    ),
+                                  );
+                                } else {
+                                  return CircleAvatar(
+                                    backgroundColor: Theme.of(
+                                      context,
+                                    ).colorScheme.primary,
+                                    child: Text(
+                                      presenter.currentUser != null
+                                          ? (presenter.currentUser!['default_name'] ??
+                                                    '?')
+                                                .substring(0, 1)
+                                                .toUpperCase()
+                                          : '?',
+                                      style: Theme.of(context)
+                                          .textTheme
+                                          .labelLarge
+                                          ?.copyWith(
+                                            color: Theme.of(
+                                              context,
+                                            ).colorScheme.onPrimary,
+                                          ),
+                                    ),
+                                  );
+                                }
+                              },
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
-                  ),
-                  child: Row(
-                    children: [
-                      // Search Bar
-                      Expanded(
-                        child: TextField(
-                          decoration: InputDecoration(
-                            hintText: 'Search...',
-                            prefixIcon: const Icon(Icons.search),
-                            border: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(8),
-                            ),
-                            contentPadding: const EdgeInsets.symmetric(
-                              vertical: 8,
-                              horizontal: 16,
-                            ),
-                          ),
-                        ),
-                      ),
-                      const SizedBox(width: 16),
-                      // User Profile with Menu
-                      PopupMenuButton<String>(
-                        onSelected: (String result) {
-                          if (result == 'logout') {
-                            Credentials().clear(); // Clear stored credentials
-                            SocketClient()
-                                .dispose(); // Close socket connections
-                            Navigator.pushReplacementNamed(context, '/auth');
-                          }
-                        },
-                        itemBuilder: (BuildContext context) =>
-                            <PopupMenuEntry<String>>[
-                              const PopupMenuItem<String>(
-                                value: 'profile',
-                                child: Text('Profile'),
-                              ),
-                              const PopupMenuItem<String>(
-                                value: 'settings',
-                                child: Text('Settings'),
-                              ),
-                              const PopupMenuDivider(),
-                              const PopupMenuItem<String>(
-                                value: 'logout',
-                                child: Text('Logout'),
-                              ),
-                            ],
-                        child: CircleAvatar(
-                          backgroundColor: Theme.of(
-                            context,
-                          ).colorScheme.primary,
-                          child: Text(
-                            'JD',
-                            style: Theme.of(context).textTheme.labelLarge,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                // Dynamic Content Area
-                Expanded(child: _buildContent()),
-              ],
+                    // Dynamic Content Area
+                    Expanded(child: _buildContent()),
+                  ],
+                );
+              },
             ),
           ),
         ],

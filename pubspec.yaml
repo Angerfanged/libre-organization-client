@@ -41,6 +41,8 @@ dependencies:
   socket_io_client: ^3.1.4
   open_filex: ^4.7.0
   file_picker: ^8.0.0
+  crop_image: ^1.0.17
+  image: ^4.1.7
 
 dev_dependencies:
   flutter_test:

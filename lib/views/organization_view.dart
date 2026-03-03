@@ -3,9 +3,11 @@ import 'dart:convert';
 
 import 'package:flutter/material.dart';
 import 'package:libre_organization_client/credentials.dart';
+import 'package:libre_organization_client/socket_client.dart';
 import 'package:provider/provider.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:open_filex/open_filex.dart';
+import 'package:flutter/services.dart';
 
 import 'package:libre_organization_client/presenters/organization_presenter.dart';
 import 'package:libre_organization_client/presenters/file_presenter.dart';
@@ -25,18 +27,33 @@ class _OrganizationViewState extends State<OrganizationView> {
       0; // 0 for chat, 1 for files, 2 for people, 3 for settings
 
   final TextEditingController _messageController = TextEditingController();
-  final FocusNode _focusNode = FocusNode();
+  FocusNode _focusNode = FocusNode();
   final ScrollController _organizationScrollController = ScrollController();
   final GlobalKey<PopupMenuButtonState> _popupAddItemMenuKey = GlobalKey();
+
+  bool _isLoadingMessages = false;
 
   // File watching state
   final Map<int, FileSystemEntity> _watchedFiles = {};
   final Map<int, DateTime?> _lastModifiedTimes = {};
+  bool _showFilesInMessages = false;
+  List<File> _filesToAttach = [];
 
   @override
   void initState() {
     super.initState();
     _organizationScrollController.addListener(_organizationScrollListener);
+    _focusNode = FocusNode(
+      onKeyEvent: (FocusNode node, KeyEvent event) {
+        if (event.logicalKey == LogicalKeyboardKey.enter &&
+            !HardwareKeyboard.instance.isShiftPressed) {
+          _sendMessage(); // Call the send message function
+          // Prevent the default behavior of adding a new line
+          return KeyEventResult.handled;
+        }
+        return KeyEventResult.ignored;
+      },
+    );
   }
 
   @override
@@ -59,6 +76,23 @@ class _OrganizationViewState extends State<OrganizationView> {
     super.dispose();
   }
 
+  void _sendMessage() {
+    if (_messageController.text.trim().isEmpty && _filesToAttach.isEmpty) {
+      return;
+    }
+    // Send message to server
+    OrganizationPresenter().sendMessage(
+      _currentOrganizationIndex,
+      _messageController.text.trim(),
+      filesToAttach: _filesToAttach,
+    );
+    _messageController.clear();
+    setState(() {
+      _filesToAttach = [];
+    });
+    _focusNode.requestFocus(); // Keep focus on the text field after sending
+  }
+
   List<Widget> _buildOrganizationList() {
     List<Widget> organizations = [];
     for (int i = 0; i < OrganizationPresenter().organizations.length; i++) {
@@ -69,7 +103,9 @@ class _OrganizationViewState extends State<OrganizationView> {
             setState(() {
               _currentOrganizationIndex = i;
               _showAddButton = false;
+              OrganizationPresenter().currentOrganizationIndex = i;
               OrganizationPresenter().getOrganizationsChannels(i);
+              OrganizationPresenter().getOrganizationMembers(i);
             });
           },
           style: TextButton.styleFrom(
@@ -83,7 +119,7 @@ class _OrganizationViewState extends State<OrganizationView> {
           icon: ClipRRect(
             borderRadius: BorderRadius.circular(10),
             child: Image.network(
-              'localhost:3000/public/icon.png',
+              'http://localhost:3000/organizations/${organization['path_name']}/icon.png',
               width: 35,
               height: 35,
               fit: BoxFit.cover,
@@ -118,7 +154,8 @@ class _OrganizationViewState extends State<OrganizationView> {
     if (organization['channels'] == null) {
       return [Text('Could not load channels')];
     }
-    for (var channel in organization['channels']) {
+    for (int i = 0; i < organization['channels'].length; i++) {
+      var channel = organization['channels'][i];
       switch (channel['type']) {
         case 'text':
           channels.add(
@@ -134,6 +171,10 @@ class _OrganizationViewState extends State<OrganizationView> {
               icon: Icon(Icons.tag),
               label: Text(channel['name']),
               onPressed: () {
+                setState(() {
+                  _channelWindowIndex = 0;
+                });
+
                 OrganizationPresenter().changeChannel(
                   _currentOrganizationIndex,
                   channel,
@@ -141,7 +182,7 @@ class _OrganizationViewState extends State<OrganizationView> {
                 OrganizationPresenter().getMessageHistory(
                   _currentOrganizationIndex,
                 );
-                // Load files for this channel
+
                 _loadChannelFiles();
               },
             ),
@@ -262,6 +303,12 @@ class _OrganizationViewState extends State<OrganizationView> {
                         onPressed: () {
                           setState(() {
                             _channelWindowIndex = 1;
+                            // When switching to the files tab, load the default view
+                            if (_showFilesInMessages) {
+                              _loadChannelMessageFiles();
+                            } else {
+                              _loadChannelFiles();
+                            }
                           });
                         },
                       ),
@@ -272,28 +319,12 @@ class _OrganizationViewState extends State<OrganizationView> {
                           color: Theme.of(context).colorScheme.secondary,
                         ),
                         label: Text(
-                          'Tasks',
-                          style: Theme.of(context).textTheme.titleLarge,
-                        ),
-                        onPressed: () {
-                          setState(() {
-                            _channelWindowIndex = 2;
-                          });
-                        },
-                      ),
-                      Padding(padding: EdgeInsetsGeometry.all(12)),
-                      TextButton.icon(
-                        icon: Icon(
-                          Icons.settings,
-                          color: Theme.of(context).colorScheme.secondary,
-                        ),
-                        label: Text(
                           'People',
                           style: Theme.of(context).textTheme.titleLarge,
                         ),
                         onPressed: () {
                           setState(() {
-                            _channelWindowIndex = 3;
+                            _channelWindowIndex = 2;
                           });
                         },
                       ),
@@ -330,40 +361,85 @@ class _OrganizationViewState extends State<OrganizationView> {
   Widget _buildChannelWindowContent() {
     switch (_channelWindowIndex) {
       case 0:
-        OrganizationPresenter().getMessageHistory(_currentOrganizationIndex);
         return Column(
           children: [
             Expanded(
-              child: ListView.builder(
-                controller: _organizationScrollController,
-                reverse: true,
-                itemCount:
-                    OrganizationPresenter().currentChannelsMessages.length,
-                itemBuilder: (context, index) {
-                  var message =
-                      OrganizationPresenter()
-                          .currentChannelsMessages[OrganizationPresenter()
-                              .currentChannelsMessages
-                              .length -
-                          1 -
-                          index];
-                  return ListTile(
-                    leading: CircleAvatar(
-                      backgroundColor: Theme.of(context).colorScheme.primary,
-                      child: Text(
-                        'JD',
-                        style: Theme.of(context).textTheme.labelLarge,
-                      ),
-                    ),
-                    title: Text(message['author_id'].toString()),
-                    subtitle: Text(message['content'].toString()),
-                  );
+              child: NotificationListener<ScrollNotification>(
+                onNotification: (scrollNotification) {
+                  if (scrollNotification is ScrollEndNotification &&
+                      scrollNotification.metrics.extentAfter == 0) {
+                    _organizationScrollListener();
+                  }
+                  return false;
                 },
+                child: ListView.builder(
+                  controller: _organizationScrollController,
+                  reverse: true, // This keeps the scroll at the bottom
+                  itemCount:
+                      OrganizationPresenter().currentChannelsMessages.length,
+                  itemBuilder: (context, index) {
+                    // Index 0 is now the newest message because of our .insert(0, ...) change
+                    final message =
+                        OrganizationPresenter().currentChannelsMessages[index];
+                    final author = message['author'] as Map<String, dynamic>?;
+                    final authorName =
+                        author?['default_name'] ?? 'Unknown User';
+                    final authorInitials = authorName.isNotEmpty
+                        ? authorName.substring(0, 1).toUpperCase()
+                        : '?';
+
+                    final pfpPath = author?['pfp_path'];
+
+                    return ListTile(
+                      leading: pfpPath != null
+                          ? CircleAvatar(
+                              backgroundImage: NetworkImage(
+                                'http://localhost:3000/user_files$pfpPath',
+                              ),
+                            )
+                          : CircleAvatar(
+                              backgroundColor: Theme.of(
+                                context,
+                              ).colorScheme.primary,
+                              child: Text(
+                                authorInitials,
+                                style: Theme.of(context).textTheme.labelLarge
+                                    ?.copyWith(
+                                      color: Theme.of(
+                                        context,
+                                      ).colorScheme.onPrimary,
+                                    ),
+                              ),
+                            ),
+                      title: Text(authorName),
+                      subtitle: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          if (message['content'] != null &&
+                              message['content'].toString().isNotEmpty)
+                            SelectableText(
+                              message['content'].toString(),
+                              style: Theme.of(context).textTheme.bodyMedium,
+                            ),
+                          if (message['attachments'] != null &&
+                              (message['attachments'] as List).isNotEmpty)
+                            _buildMessageAttachments(
+                              message['attachments'] as List,
+                            ),
+                        ],
+                      ),
+                    );
+                  },
+                ),
               ),
             ),
+            if (_filesToAttach.isNotEmpty) _buildAttachmentsPreview(),
             Row(
               children: [
-                IconButton(onPressed: () {}, icon: Icon(Icons.add)),
+                IconButton(
+                  onPressed: _pickFilesToAttach,
+                  icon: Icon(Icons.add),
+                ),
                 Expanded(
                   child: TextField(
                     controller: _messageController,
@@ -378,28 +454,14 @@ class _OrganizationViewState extends State<OrganizationView> {
                         horizontal: 16,
                       ),
                     ),
-                    onSubmitted: (value) {
-                      if (value.trim().isEmpty) return;
-                      // Send message to server
-                      OrganizationPresenter().sendMessage(
-                        _currentOrganizationIndex,
-                        value.trim(),
-                      );
-                      _messageController.clear();
-                      _focusNode
-                          .requestFocus(); // Keep focus on the text field after sending
-                    },
+                    keyboardType: TextInputType.multiline,
+                    maxLines: null,
+                    textInputAction: TextInputAction.newline,
                   ),
                 ),
                 IconButton(
                   onPressed: () {
-                    if (_messageController.text.trim().isEmpty) return;
-                    // Send message to server
-                    OrganizationPresenter().sendMessage(
-                      _currentOrganizationIndex,
-                      _messageController.text.trim(),
-                    );
-                    _messageController.clear();
+                    _sendMessage();
                   },
                   icon: Icon(Icons.send),
                   color: Theme.of(context).colorScheme.primary,
@@ -412,103 +474,58 @@ class _OrganizationViewState extends State<OrganizationView> {
         );
       case 1:
         return Consumer<FilePresenter>(
-          builder: (context, filePresenter, child) {
-            return Column(
-              children: [
-                Expanded(child: _buildFilesView(filePresenter)),
-                Container(
-                  padding: EdgeInsets.all(10),
-                  /*decoration: BoxDecoration(
-                    border: Border(
-                      top: BorderSide(color: Theme.of(context).dividerColor),
-                    ),
-                  ),*/
-                  child: Row(
-                    children: [
-                      PopupMenuButton(
-                        key: _popupAddItemMenuKey,
-                        child: ElevatedButton.icon(
-                          icon: Icon(Icons.add),
-                          label: Text('Add'),
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: Theme.of(
-                              context,
-                            ).colorScheme.surface,
-                            textStyle: TextStyle(fontSize: 20),
-                            iconSize: 20,
-                          ),
-                          onPressed: () => _popupAddItemMenuKey.currentState
-                              ?.showButtonMenu(),
-                        ),
-                        tooltip: 'Add File or Folder',
-                        itemBuilder: (context) => [
-                          PopupMenuItem(
-                            child: ListTile(
-                              leading: Icon(Icons.upload_file),
-                              title: Text('Upload File'),
-                            ),
-                            onTap: () => _uploadFilePickerFiles(filePresenter),
-                          ),
-                          PopupMenuItem(
-                            child: ListTile(
-                              leading: Icon(Icons.folder),
-                              title: Text('Upload Folder'),
-                            ),
-                            onTap: () => _uploadFolder(filePresenter),
-                          ),
-                          PopupMenuItem(
-                            child: ListTile(
-                              leading: Icon(Icons.create_new_folder),
-                              title: Text('New Folder'),
-                            ),
-                            onTap: () {
-                              final channel = OrganizationPresenter()
-                                  .currentDisplayedChannel;
-                              _showCreateFolderDialog(
-                                filePresenter,
-                                filePresenter.currentFolderId,
-                                channel['id'],
-                              );
-                            },
-                          ),
-                        ],
-                      ),
-
-                      if (filePresenter.uploadProgress > 0 &&
-                          filePresenter.uploadProgress < 1)
-                        SizedBox(
-                          width: 20,
-                          height: 20,
-                          child: CircularProgressIndicator(
-                            strokeWidth: 2,
-                            value: filePresenter.uploadProgress,
-                          ),
-                        ),
-                      if (filePresenter.errorMessage != null)
-                        Text(
-                          filePresenter.errorMessage!,
-                          style: TextStyle(
-                            color: Theme.of(context).colorScheme.error,
-                          ),
-                        ),
-                      Spacer(),
-                    ],
-                  ),
-                ),
-              ],
-            );
-          },
+          builder: (context, filePresenter, child) =>
+              _buildFilesView(filePresenter),
         );
       case 2:
         return Column(
           children: [
-            Expanded(child: Center(child: Text('Tasks content goes here'))),
-          ],
-        );
-      case 3:
-        return Column(
-          children: [
-            Expanded(child: Center(child: Text('People content goes here'))),
+            Consumer<OrganizationPresenter>(
+              builder: (context, presenter, child) {
+                return Expanded(
+                  child: ListView.builder(
+                    itemCount: presenter.currentOrganizationMembers.length,
+                    itemBuilder: (context, index) {
+                      final memberData =
+                          presenter.currentOrganizationMembers[index];
+                      final author =
+                          memberData['author'] as Map<String, dynamic>?;
+                      final memberName =
+                          author?['default_name'] ?? 'Unknown User';
+                      final memberTag = author?['user_tag'] ?? '';
+                      final memberInitials = memberName.isNotEmpty
+                          ? memberName.substring(0, 1).toUpperCase()
+                          : '?';
+                      final pfpPath = author?['pfp_path'];
+                      return ListTile(
+                        leading: pfpPath != null
+                            ? CircleAvatar(
+                                backgroundImage: NetworkImage(
+                                  'http://localhost:3000/user_files$pfpPath',
+                                ),
+                              )
+                            : CircleAvatar(
+                                backgroundColor: Theme.of(
+                                  context,
+                                ).colorScheme.primary,
+                                child: Text(
+                                  memberInitials,
+                                  style: Theme.of(context).textTheme.labelLarge
+                                      ?.copyWith(
+                                        color: Theme.of(
+                                          context,
+                                        ).colorScheme.onPrimary,
+                                      ),
+                                ),
+                              ),
+                        title: Text(memberName),
+                        subtitle: Text('@$memberTag'),
+                      );
+                    },
+                  ),
+                );
+              },
+            ),
           ],
         );
       default:
@@ -516,12 +533,173 @@ class _OrganizationViewState extends State<OrganizationView> {
     }
   }
 
+  Widget _buildMessageAttachments(List attachments) {
+    return Padding(
+      padding: const EdgeInsets.only(top: 8.0),
+      child: Wrap(
+        spacing: 8.0,
+        runSpacing: 8.0,
+        children: attachments.map<Widget>((attachment) {
+          final attach = attachment as Map<String, dynamic>;
+          return _buildAttachmentContent(attach);
+        }).toList(),
+      ),
+    );
+  }
+
+  Widget _buildAttachmentContent(Map<String, dynamic> attachment) {
+    final fileType = (attachment['file_type'] as String?)?.toLowerCase() ?? '';
+    final fileContent = attachment['file_content'] as String?;
+    final fileName = attachment['file_name'] as String? ?? 'file';
+
+    // If the file is missing on the server, show the generic attachment view.
+    if (attachment['missing'] == true) {
+      return _buildGenericAttachment(fileName, isMissing: true);
+    }
+
+    final imageTypes = ['jpg', 'jpeg', 'png', 'gif', 'bmp', 'webp'];
+
+    Widget content;
+
+    if (imageTypes.contains(fileType) && fileContent != null) {
+      try {
+        final bytes = base64Decode(fileContent);
+        content = ClipRRect(
+          borderRadius: BorderRadius.circular(8.0),
+          child: Image.memory(
+            bytes,
+            fit: BoxFit.cover,
+            // Optional: Add constraints to prevent overly large images
+            width: 300,
+            height: 200,
+          ),
+        );
+      } catch (e) {
+        content = _buildGenericAttachment(fileName);
+      }
+    } else {
+      content = _buildGenericAttachment(fileName);
+    }
+
+    return InkWell(
+      onTap: () {
+        if (!imageTypes.contains(fileType)) {
+          final filePresenter = Provider.of<FilePresenter>(
+            context,
+            listen: false,
+          );
+          _openAndWatchFile(filePresenter, attachment);
+        } else {
+          // Optional: implement a full-screen image viewer on tap
+          print('Tapped on image attachment: $fileName');
+        }
+      },
+      child: content,
+    );
+  }
+
+  Widget _buildImageAttachment(Map<String, dynamic> attachment) {
+    final bytes = base64Decode(attachment['file_content']);
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(8.0),
+      child: Image.memory(bytes, fit: BoxFit.cover, width: 300, height: 200),
+    );
+  }
+
+  Widget _buildGenericAttachment(String fileName, {bool isMissing = false}) {
+    return Card(
+      margin: EdgeInsets.zero,
+      child: Padding(
+        padding: const EdgeInsets.all(8.0),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              isMissing ? Icons.link_off : Icons.insert_drive_file_outlined,
+              size: 20,
+              color: isMissing ? Colors.red : null,
+            ),
+            SizedBox(width: 8),
+            Flexible(
+              child: Text(
+                fileName,
+                overflow: TextOverflow.ellipsis,
+                style: isMissing
+                    ? TextStyle(
+                        decoration: TextDecoration.lineThrough,
+                        color: Colors.red.shade300,
+                      )
+                    : null,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildAttachmentsPreview() {
+    return Container(
+      height: 100,
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      child: ListView.builder(
+        scrollDirection: Axis.horizontal,
+        itemCount: _filesToAttach.length,
+        itemBuilder: (context, index) {
+          final file = _filesToAttach[index];
+          final fileName = file.path.split(Platform.pathSeparator).last;
+          return Container(
+            width: 120,
+            margin: const EdgeInsets.only(right: 8),
+            child: Stack(
+              alignment: Alignment.topRight,
+              children: [
+                Card(
+                  clipBehavior: Clip.antiAlias,
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      const Icon(Icons.insert_drive_file, size: 32),
+                      Padding(
+                        padding: const EdgeInsets.all(4.0),
+                        child: Text(
+                          fileName,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          textAlign: TextAlign.center,
+                          style: const TextStyle(fontSize: 12),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                IconButton(
+                  icon: const Icon(Icons.cancel, size: 20),
+                  onPressed: () {
+                    setState(() => _filesToAttach.removeAt(index));
+                  },
+                ),
+              ],
+            ),
+          );
+        },
+      ),
+    );
+  }
+
   void _organizationScrollListener() {
-    if (_organizationScrollController.offset >=
-            _organizationScrollController.position.maxScrollExtent &&
-        !_organizationScrollController.position.outOfRange) {
-      // Load more messages when scrolled to the top
-      OrganizationPresenter().getMessageHistory(_currentOrganizationIndex);
+    final presenter = OrganizationPresenter();
+
+    // Check if we are at the top of the list (since it's reversed)
+    // and not already fetching.
+    if (_organizationScrollController.position.atEdge &&
+        _organizationScrollController.position.pixels != 0) {
+      if (!presenter.fetchingOldPosts &&
+          presenter.currentChannelsMessages.isNotEmpty) {
+        // Use the presenter's flag to prevent multiple concurrent fetches.
+        // This fetches the next batch of older messages.
+        presenter.getMessageHistory(_currentOrganizationIndex);
+      }
     }
   }
 
@@ -532,6 +710,28 @@ class _OrganizationViewState extends State<OrganizationView> {
           .organizations[_currentOrganizationIndex]['id'],
       channelId: channel['id'],
     );
+  }
+
+  void _loadChannelMessageFiles() {
+    final channel = OrganizationPresenter().currentDisplayedChannel;
+    final orgId =
+        OrganizationPresenter().organizations[_currentOrganizationIndex]['id'];
+    SocketClient().sendToMain('getChannelMessageFiles', {
+      'organization_id': orgId,
+      'channel_id': channel['id'],
+    });
+  }
+
+  Future<void> _pickFilesToAttach() async {
+    FilePickerResult? result = await FilePicker.platform.pickFiles(
+      allowMultiple: true,
+    );
+
+    if (result != null) {
+      setState(() {
+        _filesToAttach.addAll(result.paths.map((path) => File(path!)).toList());
+      });
+    }
   }
 
   Future<void> _uploadFilePickerFiles(FilePresenter filePresenter) async {
@@ -798,63 +998,83 @@ class _OrganizationViewState extends State<OrganizationView> {
 
     final channel = OrganizationPresenter().currentDisplayedChannel;
 
-    final files = filePresenter.files;
+    final allFiles = filePresenter.files;
+    final List<Map<String, dynamic>> files;
+
+    if (_showFilesInMessages) {
+      files = allFiles;
+    } else {
+      // Filter out files that are message attachments, but always keep folders.
+      files = allFiles.where((file) {
+        final isFolder = file['is_folder'] != 0;
+        final isMessageAttachment =
+            file['file_association'] == 'message_attachment';
+        return isFolder || !isMessageAttachment;
+      }).toList();
+    }
 
     return Column(
       children: [
-        // Breadcrumb navigation with drag targets for parent directories
-        if (filePresenter.currentFolderId != null)
-          SingleChildScrollView(
-            scrollDirection: Axis.horizontal,
-            child: Padding(
-              padding: EdgeInsets.symmetric(horizontal: 8.0, vertical: 8.0),
-              child: Row(
-                children: [
-                  // Root drag target
-                  DragTarget<Map<String, dynamic>>(
-                    onWillAccept: (data) => true,
-                    onAccept: (draggedItem) {
-                      filePresenter.moveFile(
-                        organizationId: OrganizationPresenter()
-                            .organizations[_currentOrganizationIndex]['id'],
-                        fileId: draggedItem['id'],
-                        channelId: channel['id'],
-                        newParentId: null,
-                      );
-                      _loadChannelFiles();
-                    },
-                    builder: (context, candidateData, rejectedData) {
-                      final isDraggingOver = candidateData.isNotEmpty;
-                      return TextButton(
-                        onPressed: () {
-                          filePresenter.getFolderContents(
-                            organizationId: OrganizationPresenter()
-                                .organizations[_currentOrganizationIndex]['id'],
-                            channelId: channel['id'],
-                            parentFolderId: null,
-                          );
-                        },
-                        style: TextButton.styleFrom(
-                          backgroundColor: isDraggingOver
-                              ? Colors.amber.shade300.withOpacity(0.2)
-                              : Colors.transparent,
-                        ),
-                        child: Text('Root'),
-                      );
-                    },
+        // Consolidated Header Row
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 8.0),
+          decoration: BoxDecoration(
+            border: Border(
+              bottom: BorderSide(color: Theme.of(context).dividerColor),
+            ),
+          ),
+          child: Row(
+            children: [
+              PopupMenuButton(
+                key: _popupAddItemMenuKey,
+                tooltip: 'Add File or Folder',
+                itemBuilder: (context) => [
+                  PopupMenuItem(
+                    child: const ListTile(
+                      leading: Icon(Icons.upload_file),
+                      title: Text('Upload File'),
+                    ),
+                    onTap: () => _uploadFilePickerFiles(filePresenter),
                   ),
-                  ...filePresenter.folderPath.map((folder) {
-                    // Find the parent folder ID for this breadcrumb item
-                    final folderIndex = filePresenter.folderPath.indexOf(
-                      folder,
-                    );
-                    final parentFolderId = folderIndex > 0
-                        ? filePresenter.folderPath[folderIndex - 1]['id']
-                        : null;
-
-                    return Row(
+                  PopupMenuItem(
+                    child: const ListTile(
+                      leading: Icon(Icons.folder),
+                      title: Text('Upload Folder'),
+                    ),
+                    onTap: () => _uploadFolder(filePresenter),
+                  ),
+                  PopupMenuItem(
+                    child: const ListTile(
+                      leading: Icon(Icons.create_new_folder),
+                      title: Text('New Folder'),
+                    ),
+                    onTap: () => _showCreateFolderDialog(
+                      filePresenter,
+                      filePresenter.currentFolderId,
+                      channel['id'],
+                    ),
+                  ),
+                ],
+                child: ElevatedButton.icon(
+                  icon: Icon(Icons.add),
+                  label: Text('Add'),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Theme.of(context).colorScheme.surface,
+                  ),
+                  onPressed: () =>
+                      _popupAddItemMenuKey.currentState?.showButtonMenu(),
+                ),
+              ),
+              const SizedBox(width: 16),
+              // Breadcrumb navigation is only shown when not viewing message files and not in root
+              if (!_showFilesInMessages &&
+                  filePresenter.currentFolderId != null)
+                Expanded(
+                  child: SingleChildScrollView(
+                    scrollDirection: Axis.horizontal,
+                    child: Row(
                       children: [
-                        Icon(Icons.chevron_right, size: 16),
+                        // Root drag target
                         DragTarget<Map<String, dynamic>>(
                           onWillAccept: (data) => true,
                           onAccept: (draggedItem) {
@@ -863,7 +1083,7 @@ class _OrganizationViewState extends State<OrganizationView> {
                                   .organizations[_currentOrganizationIndex]['id'],
                               fileId: draggedItem['id'],
                               channelId: channel['id'],
-                              newParentId: folder['id'],
+                              newParentId: null,
                             );
                             _loadChannelFiles();
                           },
@@ -875,7 +1095,7 @@ class _OrganizationViewState extends State<OrganizationView> {
                                   organizationId: OrganizationPresenter()
                                       .organizations[_currentOrganizationIndex]['id'],
                                   channelId: channel['id'],
-                                  parentFolderId: folder['id'],
+                                  parentFolderId: null,
                                 );
                               },
                               style: TextButton.styleFrom(
@@ -883,17 +1103,88 @@ class _OrganizationViewState extends State<OrganizationView> {
                                     ? Colors.amber.shade300.withOpacity(0.2)
                                     : Colors.transparent,
                               ),
-                              child: Text(folder['name']),
+                              child: Text('Root'),
                             );
                           },
                         ),
+                        ...filePresenter.folderPath.map((folder) {
+                          return Row(
+                            children: [
+                              Icon(Icons.chevron_right, size: 16),
+                              DragTarget<Map<String, dynamic>>(
+                                onWillAccept: (data) => true,
+                                onAccept: (draggedItem) {
+                                  filePresenter.moveFile(
+                                    organizationId: OrganizationPresenter()
+                                        .organizations[_currentOrganizationIndex]['id'],
+                                    fileId: draggedItem['id'],
+                                    channelId: channel['id'],
+                                    newParentId: folder['id'],
+                                  );
+                                  _loadChannelFiles();
+                                },
+                                builder: (context, candidateData, rejectedData) {
+                                  final isDraggingOver =
+                                      candidateData.isNotEmpty;
+                                  return TextButton(
+                                    onPressed: () {
+                                      filePresenter.getFolderContents(
+                                        organizationId: OrganizationPresenter()
+                                            .organizations[_currentOrganizationIndex]['id'],
+                                        channelId: channel['id'],
+                                        parentFolderId: folder['id'],
+                                      );
+                                    },
+                                    style: TextButton.styleFrom(
+                                      backgroundColor: isDraggingOver
+                                          ? Colors.amber.shade300.withOpacity(
+                                              0.2,
+                                            )
+                                          : Colors.transparent,
+                                    ),
+                                    child: Text(folder['name']),
+                                  );
+                                },
+                              ),
+                            ],
+                          );
+                        }),
                       ],
-                    );
-                  }),
-                ],
+                    ),
+                  ),
+                )
+              else
+                const Spacer(), // Use a spacer to push the controls to the right
+              if (filePresenter.uploadProgress > 0 &&
+                  filePresenter.uploadProgress < 1)
+                Padding(
+                  padding: const EdgeInsets.all(8.0),
+                  child: SizedBox(
+                    width: 20,
+                    height: 20,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      value: filePresenter.uploadProgress,
+                    ),
+                  ),
+                ),
+              Text('Message Files'),
+              Switch(
+                value: _showFilesInMessages,
+                onChanged: (bool value) {
+                  setState(() {
+                    _showFilesInMessages = value;
+                  });
+                  if (value) {
+                    _loadChannelMessageFiles();
+                  } else {
+                    _loadChannelFiles();
+                  }
+                },
               ),
-            ),
+            ],
           ),
+        ),
         // File/folder list
         if (files.isEmpty)
           Expanded(
@@ -907,12 +1198,7 @@ class _OrganizationViewState extends State<OrganizationView> {
                     color: Theme.of(context).colorScheme.secondary,
                   ),
                   SizedBox(height: 16),
-                  Text('No files in this folder'),
-                  SizedBox(height: 8),
-                  Text(
-                    'Click "Upload File" or "New Folder" to add content',
-                    style: Theme.of(context).textTheme.bodySmall,
-                  ),
+                  Text('No files to display'),
                 ],
               ),
             ),
@@ -924,303 +1210,293 @@ class _OrganizationViewState extends State<OrganizationView> {
               itemBuilder: (context, index) {
                 final item = files[index];
                 final isFolder = item['is_folder'] != 0;
-
-                // Folders are draggable (can be moved) and also accept drops (can have items moved into them)
                 if (isFolder) {
-                  return Draggable<Map<String, dynamic>>(
-                    data: item,
-                    feedback: Material(
-                      child: Card(
-                        child: Padding(
-                          padding: EdgeInsets.all(8),
-                          child: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Icon(Icons.folder, color: Colors.amber.shade300),
-                              SizedBox(width: 8),
-                              Text(item['file_name'] ?? 'Unnamed'),
-                            ],
-                          ),
-                        ),
-                      ),
-                    ),
-                    childWhenDragging: Opacity(
-                      opacity: 0.5,
-                      child: Card(
-                        color: Theme.of(context).scaffoldBackgroundColor,
-                        margin: EdgeInsets.symmetric(
-                          horizontal: 8,
-                          vertical: 4,
-                        ),
-                        child: ListTile(
-                          leading: Icon(
-                            Icons.folder,
-                            color: Colors.amber.shade300,
-                          ),
-                          title: Text(item['file_name'] ?? 'Unnamed'),
-                        ),
-                      ),
-                    ),
-                    child: DragTarget<Map<String, dynamic>>(
-                      onWillAccept: (data) => true,
-                      onAccept: (draggedItem) {
-                        // Move the dragged file/folder into this folder
-                        filePresenter.moveFile(
-                          organizationId: OrganizationPresenter()
-                              .organizations[_currentOrganizationIndex]['id'],
-                          fileId: draggedItem['id'],
-                          channelId: channel['id'],
-                          newParentId: item['id'],
-                        );
-                        _loadChannelFiles();
-                      },
-                      builder: (context, candidateData, rejectedData) {
-                        final isDraggingOver = candidateData.isNotEmpty;
-                        return Card(
-                          color: isDraggingOver
-                              ? Theme.of(
-                                  context,
-                                ).colorScheme.primary.withOpacity(0.1)
-                              : Theme.of(context).scaffoldBackgroundColor,
-                          margin: EdgeInsets.symmetric(
-                            horizontal: 8,
-                            vertical: 4,
-                          ),
-                          child: ListTile(
-                            leading: Icon(
-                              Icons.folder,
-                              color: isDraggingOver
-                                  ? Colors.amber.shade300.withOpacity(0.7)
-                                  : Colors.amber.shade300,
-                            ),
-                            title: Text(item['file_name'] ?? 'Unnamed'),
-                            subtitle: isDraggingOver
-                                ? Text(
-                                    'Drop to move file here',
-                                    style: TextStyle(
-                                      color: Theme.of(
-                                        context,
-                                      ).colorScheme.primary,
-                                    ),
-                                  )
-                                : null,
-                            onTap: () {
-                              filePresenter.getFolderContents(
-                                organizationId: OrganizationPresenter()
-                                    .organizations[_currentOrganizationIndex]['id'],
-                                channelId: channel['id'],
-                                parentFolderId: item['id'],
-                              );
-                            },
-                            trailing: PopupMenuButton(
-                              itemBuilder: (context) => [
-                                PopupMenuItem(
-                                  child: Row(
-                                    mainAxisSize: MainAxisSize.min,
-                                    children: [
-                                      Icon(Icons.create_new_folder),
-                                      SizedBox(width: 8),
-                                      Text('New Folder'),
-                                    ],
-                                  ),
-                                  onTap: () => _showCreateFolderDialog(
-                                    filePresenter,
-                                    item['id'],
-                                    channel['id'],
-                                  ),
-                                ),
-                                PopupMenuItem(
-                                  child: Row(
-                                    mainAxisSize: MainAxisSize.min,
-                                    children: [
-                                      Icon(Icons.download),
-                                      SizedBox(width: 8),
-                                      Text('Download'),
-                                    ],
-                                  ),
-                                  onTap: () async {
-                                    try {
-                                      final path = await filePresenter.downloadFolder(
-                                        organizationId: OrganizationPresenter()
-                                            .organizations[_currentOrganizationIndex]['id'],
-                                        channelId: channel['id'],
-                                        folderId: item['id'],
-                                        folderName: item['file_name'],
-                                      );
-                                      ScaffoldMessenger.of(
-                                        context,
-                                      ).showSnackBar(
-                                        SnackBar(
-                                          content: Text('Downloaded to: $path'),
-                                        ),
-                                      );
-                                    } catch (e) {
-                                      ScaffoldMessenger.of(
-                                        context,
-                                      ).showSnackBar(
-                                        SnackBar(
-                                          content: Text('Download failed: $e'),
-                                        ),
-                                      );
-                                    }
-                                  },
-                                ),
-                                PopupMenuItem(
-                                  child: Row(
-                                    mainAxisSize: MainAxisSize.min,
-                                    children: [
-                                      Icon(Icons.delete, color: Colors.red),
-                                      SizedBox(width: 8),
-                                      Text('Delete'),
-                                    ],
-                                  ),
-                                  onTap: () async {
-                                    await filePresenter.deleteFolder(
-                                      organizationId: OrganizationPresenter()
-                                          .organizations[_currentOrganizationIndex]['id'],
-                                      folderId: item['id'],
-                                      channelId: channel['id'],
-                                    );
-                                    _loadChannelFiles();
-                                  },
-                                ),
-                              ],
-                            ),
-                          ),
-                        );
-                      },
-                    ),
-                  );
+                  return _buildFolderItem(filePresenter, item, channel);
                 } else {
-                  // Files are draggable
-                  return Draggable<Map<String, dynamic>>(
-                    data: item,
-                    feedback: Material(
-                      child: Card(
-                        child: Padding(
-                          padding: EdgeInsets.all(8),
-                          child: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Icon(
-                                Icons.description,
-                                color: Theme.of(context).colorScheme.primary,
-                              ),
-                              SizedBox(width: 8),
-                              Text(item['file_name'] ?? 'Unnamed'),
-                            ],
-                          ),
-                        ),
-                      ),
-                    ),
-                    childWhenDragging: Opacity(
-                      opacity: 0.5,
-                      child: Card(
-                        color: Theme.of(context).scaffoldBackgroundColor,
-                        margin: EdgeInsets.symmetric(
-                          horizontal: 8,
-                          vertical: 4,
-                        ),
-                        child: ListTile(
-                          leading: Icon(
-                            Icons.description,
-                            color: Theme.of(context).colorScheme.primary,
-                          ),
-                          title: Text(item['file_name'] ?? 'Unnamed'),
-                          subtitle: Text(
-                            '${item['file_type'] ?? 'unknown'} • Author: ${item['author_id']}',
-                          ),
-                        ),
-                      ),
-                    ),
-                    child: Card(
-                      color: Theme.of(context).scaffoldBackgroundColor,
-                      margin: EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                      child: ListTile(
-                        leading: Icon(
-                          Icons.description,
-                          color: Theme.of(context).colorScheme.primary,
-                        ),
-                        title: Text(item['file_name'] ?? 'Unnamed'),
-                        subtitle: Text(
-                          '${item['file_type'] ?? 'unknown'} • Author: ${item['author_id']}',
-                        ),
-                        onTap: () => _openAndWatchFile(filePresenter, item),
-                        trailing: PopupMenuButton(
-                          itemBuilder: (context) => [
-                            PopupMenuItem(
-                              child: Row(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  Icon(Icons.open_in_new),
-                                  SizedBox(width: 8),
-                                  Text('Open'),
-                                ],
-                              ),
-                              onTap: () =>
-                                  _openAndWatchFile(filePresenter, item),
-                            ),
-                            PopupMenuItem(
-                              child: Row(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  Icon(Icons.download),
-                                  SizedBox(width: 8),
-                                  Text('Download'),
-                                ],
-                              ),
-                              onTap: () async {
-                                try {
-                                  final path = await filePresenter.downloadFile(
-                                    organizationId: OrganizationPresenter()
-                                        .organizations[_currentOrganizationIndex]['id'],
-                                    fileId: item['id'],
-                                    fileName: item['file_name'],
-                                    fileType: item['file_type'] ?? '',
-                                  );
-                                  ScaffoldMessenger.of(context).showSnackBar(
-                                    SnackBar(
-                                      content: Text('Downloaded to: $path'),
-                                    ),
-                                  );
-                                } catch (e) {
-                                  ScaffoldMessenger.of(context).showSnackBar(
-                                    SnackBar(
-                                      content: Text('Download failed: $e'),
-                                    ),
-                                  );
-                                }
-                              },
-                            ),
-                            PopupMenuItem(
-                              child: Row(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  Icon(Icons.delete, color: Colors.red),
-                                  SizedBox(width: 8),
-                                  Text('Delete'),
-                                ],
-                              ),
-                              onTap: () async {
-                                await filePresenter.deleteFile(
-                                  organizationId: OrganizationPresenter()
-                                      .organizations[_currentOrganizationIndex]['id'],
-                                  fileId: item['id'],
-                                  channelId: channel['id'],
-                                );
-                                _loadChannelFiles();
-                              },
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                  );
+                  return _buildFileItem(filePresenter, item, channel);
                 }
               },
             ),
           ),
       ],
+    );
+  }
+
+  Widget _buildFolderItem(
+    FilePresenter filePresenter,
+    Map<String, dynamic> item,
+    Map<String, dynamic> channel,
+  ) {
+    final author = item['author'] as Map<String, dynamic>?;
+    final authorName = author?['default_name'] ?? 'Unknown';
+
+    return Draggable<Map<String, dynamic>>(
+      data: item,
+      feedback: Material(
+        child: Card(
+          child: Padding(
+            padding: EdgeInsets.all(8),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(Icons.folder, color: Colors.amber.shade300),
+                SizedBox(width: 8),
+                Text(item['file_name'] ?? 'Unnamed'),
+              ],
+            ),
+          ),
+        ),
+      ),
+      childWhenDragging: Opacity(
+        opacity: 0.5,
+        child: Card(
+          color: Theme.of(context).scaffoldBackgroundColor,
+          margin: EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+          child: ListTile(
+            leading: Icon(Icons.folder, color: Colors.amber.shade300),
+            title: Text(item['file_name'] ?? 'Unnamed'),
+          ),
+        ),
+      ),
+      child: DragTarget<Map<String, dynamic>>(
+        onWillAccept: (data) => true,
+        onAccept: (draggedItem) {
+          // Move the dragged file/folder into this folder
+          filePresenter.moveFile(
+            organizationId: OrganizationPresenter()
+                .organizations[_currentOrganizationIndex]['id'],
+            fileId: draggedItem['id'],
+            channelId: channel['id'],
+            newParentId: item['id'],
+          );
+          _loadChannelFiles();
+        },
+        builder: (context, candidateData, rejectedData) {
+          final isDraggingOver = candidateData.isNotEmpty;
+          return Card(
+            color: isDraggingOver
+                ? Theme.of(context).colorScheme.primary.withOpacity(0.1)
+                : Theme.of(context).scaffoldBackgroundColor,
+            margin: EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+            child: ListTile(
+              leading: Icon(
+                Icons.folder,
+                color: isDraggingOver
+                    ? Colors.amber.shade300.withOpacity(0.7)
+                    : Colors.amber.shade300,
+              ),
+              title: Text(item['file_name'] ?? 'Unnamed'),
+              subtitle: isDraggingOver
+                  ? Text(
+                      'Drop to move file here',
+                      style: TextStyle(
+                        color: Theme.of(context).colorScheme.primary,
+                      ),
+                    )
+                  : null,
+              onTap: () {
+                filePresenter.getFolderContents(
+                  organizationId: OrganizationPresenter()
+                      .organizations[_currentOrganizationIndex]['id'],
+                  channelId: channel['id'],
+                  parentFolderId: item['id'],
+                );
+              },
+              trailing: PopupMenuButton(
+                itemBuilder: (context) => [
+                  PopupMenuItem(
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(Icons.create_new_folder),
+                        SizedBox(width: 8),
+                        Text('New Folder'),
+                      ],
+                    ),
+                    onTap: () => _showCreateFolderDialog(
+                      filePresenter,
+                      item['id'],
+                      channel['id'],
+                    ),
+                  ),
+                  PopupMenuItem(
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(Icons.download),
+                        SizedBox(width: 8),
+                        Text('Download'),
+                      ],
+                    ),
+                    onTap: () async {
+                      try {
+                        final path = await filePresenter.downloadFolder(
+                          organizationId: OrganizationPresenter()
+                              .organizations[_currentOrganizationIndex]['id'],
+                          channelId: channel['id'],
+                          folderId: item['id'],
+                          folderName: item['file_name'],
+                        );
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(content: Text('Downloaded to: $path')),
+                        );
+                      } catch (e) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(content: Text('Download failed: $e')),
+                        );
+                      }
+                    },
+                  ),
+                  PopupMenuItem(
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(Icons.delete, color: Colors.red),
+                        SizedBox(width: 8),
+                        Text('Delete'),
+                      ],
+                    ),
+                    onTap: () async {
+                      await filePresenter.deleteFolder(
+                        organizationId: OrganizationPresenter()
+                            .organizations[_currentOrganizationIndex]['id'],
+                        folderId: item['id'],
+                        channelId: channel['id'],
+                      );
+                      _loadChannelFiles();
+                    },
+                  ),
+                ],
+              ),
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  Widget _buildFileItem(
+    FilePresenter filePresenter,
+    Map<String, dynamic> item,
+    Map<String, dynamic> channel,
+  ) {
+    final author = item['author'] as Map<String, dynamic>?;
+    final authorName = author?['default_name'] ?? 'Unknown';
+
+    return Draggable<Map<String, dynamic>>(
+      data: item,
+      feedback: Material(
+        child: Card(
+          child: Padding(
+            padding: EdgeInsets.all(8),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(
+                  Icons.description,
+                  color: Theme.of(context).colorScheme.primary,
+                ),
+                SizedBox(width: 8),
+                Text(item['file_name'] ?? 'Unnamed'),
+              ],
+            ),
+          ),
+        ),
+      ),
+      childWhenDragging: Opacity(
+        opacity: 0.5,
+        child: Card(
+          color: Theme.of(context).scaffoldBackgroundColor,
+          margin: EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+          child: ListTile(
+            leading: Icon(
+              Icons.description,
+              color: Theme.of(context).colorScheme.primary,
+            ),
+            title: Text(item['file_name'] ?? 'Unnamed'),
+            subtitle: Text(
+              '${item['file_type'] ?? 'unknown'} • Author: $authorName',
+            ),
+          ),
+        ),
+      ),
+      child: Card(
+        color: Theme.of(context).scaffoldBackgroundColor,
+        margin: EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+        child: ListTile(
+          leading: Icon(
+            Icons.description,
+            color: Theme.of(context).colorScheme.primary,
+          ),
+          title: Text(item['file_name'] ?? 'Unnamed'),
+          subtitle: Text(
+            '${item['file_type'] ?? 'unknown'} • Author: $authorName',
+          ),
+          onTap: () => _openAndWatchFile(filePresenter, item),
+          trailing: PopupMenuButton(
+            itemBuilder: (context) => [
+              PopupMenuItem(
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(Icons.open_in_new),
+                    SizedBox(width: 8),
+                    Text('Open'),
+                  ],
+                ),
+                onTap: () => _openAndWatchFile(filePresenter, item),
+              ),
+              PopupMenuItem(
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(Icons.download),
+                    SizedBox(width: 8),
+                    Text('Download'),
+                  ],
+                ),
+                onTap: () async {
+                  try {
+                    final path = await filePresenter.downloadFile(
+                      organizationId: OrganizationPresenter()
+                          .organizations[_currentOrganizationIndex]['id'],
+                      fileId: item['id'],
+                      fileName: item['file_name'],
+                      fileType: item['file_type'] ?? '',
+                    );
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(content: Text('Downloaded to: $path')),
+                    );
+                  } catch (e) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(content: Text('Download failed: $e')),
+                    );
+                  }
+                },
+              ),
+              PopupMenuItem(
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(Icons.delete, color: Colors.red),
+                    SizedBox(width: 8),
+                    Text('Delete'),
+                  ],
+                ),
+                onTap: () async {
+                  await filePresenter.deleteFile(
+                    organizationId: OrganizationPresenter()
+                        .organizations[_currentOrganizationIndex]['id'],
+                    fileId: item['id'],
+                    channelId: channel['id'],
+                  );
+                  _loadChannelFiles();
+                },
+              ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 
@@ -1321,6 +1597,9 @@ class _OrganizationViewState extends State<OrganizationView> {
                                 IconButton(
                                   onPressed: () {
                                     setState(() {
+                                      OrganizationPresenter()
+                                              .currentOrganizationIndex =
+                                          -1;
                                       _currentOrganizationIndex = -1;
                                       _showAddButton = true;
                                     });

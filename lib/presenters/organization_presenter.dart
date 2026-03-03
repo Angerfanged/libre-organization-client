@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:libre_organization_client/credentials.dart';
+import 'package:libre_organization_client/presenters/file_presenter.dart';
 import 'package:libre_organization_client/socket_client.dart';
+import 'dart:io';
 import 'dart:convert';
 
 class OrganizationPresenter extends ChangeNotifier {
@@ -14,15 +16,47 @@ class OrganizationPresenter extends ChangeNotifier {
   };
 
   List<Map<String, dynamic>> currentChannelsMessages = [];
+  List<Map<String, dynamic>> currentOrganizationMembers = [];
+  Map<String, dynamic>? currentUser;
+  int currentOrganizationIndex = -1;
 
-  bool _fetchingOldPosts = false;
+  bool fetchingOldPosts = false;
+  bool isSendingMessage = false;
 
   static final OrganizationPresenter _singleton =
       OrganizationPresenter._internal();
 
   factory OrganizationPresenter() => _singleton;
 
-  OrganizationPresenter._internal();
+  OrganizationPresenter._internal() {
+    _fetchCurrentUser();
+    _listenForUserUpdates();
+  }
+
+  void _fetchCurrentUser() {
+    final userId = Credentials().userId;
+    if (userId == null) return;
+
+    SocketClient().sendToMain('getUserData', {'user_id': userId});
+    SocketClient().onMainEvent('sendUserData', (data) {
+      currentUser = Map<String, dynamic>.from(data as Map);
+      notifyListeners();
+    });
+  }
+
+  void _listenForUserUpdates() {
+    SocketClient().onMainEvent('userUpdated', (data) {
+      if (data['success'] == true && currentUser != null) {
+        // Refetch the current user's data to update the top-bar avatar.
+        _fetchCurrentUser();
+
+        // If an organization is active, refetch its members to update the People tab.
+        if (currentOrganizationIndex != -1) {
+          getOrganizationMembers(currentOrganizationIndex);
+        }
+      }
+    });
+  }
 
   Map<String, dynamic> findOrganization(String key, dynamic value) {
     for (var org in organizations) {
@@ -46,269 +80,236 @@ class OrganizationPresenter extends ChangeNotifier {
     });
   }
 
+  // Helper to get the correct socket client (main or user server)
+  dynamic _getServerSocket(Map org) {
+    if (org['host'] != null && org['port'] != null) {
+      return SocketClient().userSockets['${org['host']}:${org['port']}'];
+    }
+    return SocketClient().mainSocket;
+  }
+
   void getOrganizationsChannels(int organizationIndex) {
     Map org = organizations[organizationIndex];
-    // Check if the organization is self hosted
-    // If it is, get the channels from the user server. Otherwise, get the channels from the main server
-    if (org['host'] != null && org['port'] != null) {
-      SocketClient().sendToUserServer(
-        '${org['host']}:${org['port']}',
-        'getChannels',
-        {'user_id': Credentials().userId},
-      );
-      SocketClient().onUserEvent(
-        '${org['host']}:${org['port']}',
-        'sendChannels',
-        (data) {
-          final List<dynamic> jsonList = jsonDecode(data);
-          final List<Map<String, dynamic>> channels = jsonList
-              .map((item) => Map<String, dynamic>.from(item as Map))
-              .toList();
-          org['channels'] = channels;
-          notifyListeners();
-        },
-      );
-    } else {
-      SocketClient().sendToMain('getChannels', {
-        'user_id': Credentials().userId,
-        'organization_id': org['id'],
-      });
-      SocketClient().onMainEvent('sendChannels', (data) {
-        final List<dynamic> jsonList = jsonDecode(data);
-        final List<Map<String, dynamic>> channels = jsonList
-            .map((item) => Map<String, dynamic>.from(item as Map))
-            .toList();
-        org['channels'] = channels;
-        notifyListeners();
-      });
+    final socket = _getServerSocket(org);
+
+    socket.emit('getChannels', {
+      'user_id': Credentials().userId,
+      'organization_id': org['id'],
+    });
+
+    socket.on('sendChannels', (data) {
+      final List<dynamic> jsonList = data is String ? jsonDecode(data) : data;
+      final List<Map<String, dynamic>> channels = jsonList
+          .map((item) => Map<String, dynamic>.from(item as Map))
+          .toList();
+      org['channels'] = channels;
+      notifyListeners();
+    });
+  }
+
+  void getOrganizationMembers(int organizationIndex) {
+    if (organizationIndex < 0 || organizationIndex >= organizations.length) {
+      return;
     }
+    Map org = organizations[organizationIndex];
+    final socket = _getServerSocket(org);
+
+    // Prevent duplicate listeners
+    socket.off('sendOrganizationMembers');
+
+    socket.emit('getOrganizationMembers', {'organization_id': org['id']});
+
+    socket.on('sendOrganizationMembers', (data) {
+      final List<dynamic> jsonList = data is String ? jsonDecode(data) : data;
+      currentOrganizationMembers = jsonList
+          .map((item) => Map<String, dynamic>.from(item as Map))
+          .toList();
+      notifyListeners();
+    });
   }
 
   void changeChannel(int organizationIndex, Map<String, dynamic> channel) {
     var org = organizations[organizationIndex];
+    final socket = _getServerSocket(org);
+
+    void joinRoom(
+      String roomType,
+      String eventName,
+      Map<String, dynamic> currentChannel,
+    ) {
+      if (currentChannel['id'] != '') {
+        socket.emit('leave${roomType}Room', {
+          'organization_id': org['id'],
+          'channel_id': currentChannel['id'],
+        });
+      }
+      socket.emit('join${roomType}Room', {
+        'organization_id': org['id'],
+        'channel_id': channel['id'],
+      });
+    }
+
     switch (channel['type']) {
       case 'text':
-        // If the organization is self hosted, we need to send the join room event to the user server. Otherwise, we send it to the main server
-        if (org['host'] != null && org['port'] != null) {
-          // Leave current room if there is one
-          if (currentTextChannel['id'] != '') {
-            SocketClient().sendToUserServer(
-              '${org['host']}:${org['port']}',
-              'leaveTextRoom',
-              {
-                'organization_id': org['id'],
-                'channel_id': currentTextChannel['id'],
-              },
-            );
-          }
-          // Join new room
-          SocketClient().sendToUserServer(
-            '${org['host']}:${org['port']}',
-            'joinTextRoom',
-            {'organization_id': org['id'], 'channel_id': channel['id']},
-          );
-        } else {
-          // Leave current room if there is one
-          if (currentTextChannel['id'] != '') {
-            SocketClient().sendToMain('leaveTextRoom', {
-              'organization_id': org['id'],
-              'channel_id': currentTextChannel['id'],
-            });
-          }
-          // Join new room
-          SocketClient().sendToMain('joinTextRoom', {
-            'organization_id': org['id'],
-            'channel_id': channel['id'],
-          });
-        }
-        // Update current channel
-        OrganizationPresenter().currentTextChannel = {
+        joinRoom('Text', 'joinTextRoom', currentTextChannel);
+        currentTextChannel = {
           'id': channel['id'],
           'name': channel['name'],
           'type': channel['type'],
         };
-        OrganizationPresenter().currentDisplayedChannel =
-            OrganizationPresenter().currentTextChannel;
-        OrganizationPresenter().currentChannelsMessages = [];
-        messageListener(organizationIndex);
-        notifyListeners();
+        currentDisplayedChannel = currentTextChannel;
+        currentChannelsMessages = [];
         break;
       case 'voice':
-        // If the organization is self hosted, we need to send the join room event to the user server. Otherwise, we send it to the main server
-        if (org['host'] != null && org['port'] != null) {
-          // Leave current room if there is one
-          if (currentVoiceChannel['id'] != '') {
-            SocketClient().sendToUserServer(
-              '${org['host']}:${org['port']}',
-              'leaveVoiceRoom',
-              {
-                'organization_id': org['id'],
-                'channel_id': currentVoiceChannel['id'],
-              },
-            );
-          }
-          // Join new room
-          SocketClient().sendToUserServer(
-            '${org['host']}:${org['port']}',
-            'joinVoiceRoom',
-            {'organization_id': org['id'], 'channel_id': channel['id']},
-          );
-        } else {
-          // Leave current room if there is one
-          if (currentVoiceChannel['id'] != '') {
-            SocketClient().sendToMain('leaveVoiceRoom', {
-              'organization_id': org['id'],
-              'channel_id': currentVoiceChannel['id'],
-            });
-          }
-          // Join new room
-          SocketClient().sendToMain('joinVoiceRoom', {
-            'organization_id': org['id'],
-            'channel_id': channel['id'],
-          });
-        }
-        OrganizationPresenter().currentVoiceChannel = {
+        joinRoom('Voice', 'joinVoiceRoom', currentVoiceChannel);
+        currentVoiceChannel = {
           'id': channel['id'],
           'name': channel['name'],
           'type': channel['type'],
         };
-        OrganizationPresenter().currentDisplayedChannel =
-            OrganizationPresenter().currentVoiceChannel;
-        messageListener(organizationIndex);
-        notifyListeners();
+        currentDisplayedChannel = currentVoiceChannel;
         break;
       default:
         break;
     }
-    _fetchingOldPosts = false;
+    messageListener(organizationIndex);
+    fetchingOldPosts = false;
+    notifyListeners();
   }
 
-  void sendMessage(int organizationIndex, String message) {
+  Future<void> sendMessage(
+    int organizationIndex,
+    String message, {
+    List<File>? filesToAttach,
+  }) async {
     var org = organizations[organizationIndex];
-    if (currentTextChannel['id'] == '') {
+    final socket = _getServerSocket(org);
+
+    if (currentTextChannel['id'] == '' ||
+        (message.trim().isEmpty &&
+            (filesToAttach == null || filesToAttach.isEmpty))) {
       return;
     }
-    if (org['host'] != null && org['port'] != null) {
-      SocketClient()
-          .sendToUserServer('${org['host']}:${org['port']}', 'sendMessage', {
-            'organization_id': org['id'],
-            'channel_id': currentTextChannel['id'],
-            'content': message,
-            'author_id': Credentials().userId,
+
+    List<Map<String, dynamic>> attachments = [];
+
+    try {
+      isSendingMessage = true;
+      notifyListeners();
+
+      if (filesToAttach != null && filesToAttach.isNotEmpty) {
+        // 1. Upload each file and get its ID
+        for (var file in filesToAttach) {
+          final fileName = file.path.split('/').last;
+          final fileType = fileName.split('.').last;
+          final bytes = await file.readAsBytes();
+          final fileContent = base64Encode(bytes);
+
+          final fileId = await FilePresenter().uploadFileAndGetId(
+            organizationId: org['id'],
+            authorId: Credentials().userId,
+            channelId: currentTextChannel['id'],
+            fileAssociation: 'message_attachment',
+            fileName: fileName,
+            fileType: fileType,
+            fileContent: fileContent,
+          );
+
+          attachments.add({
+            'id': fileId,
+            'file_name': fileName,
+            'file_type': fileType,
           });
-    } else {
-      SocketClient().sendToMain('sendMessage', {
+        }
+      }
+
+      // 2. Send the message with attachments
+      socket.emit('sendMessage', {
         'organization_id': org['id'],
         'channel_id': currentTextChannel['id'],
         'content': message,
         'author_id': Credentials().userId,
+        'attachments': attachments, // Send attachment metadata
       });
+    } catch (e) {
+      // Handle potential file reading or upload errors
+      print('Error sending message with attachments: $e');
+      // Optionally, notify the user of the failure
+    } finally {
+      isSendingMessage = false;
+      notifyListeners();
     }
   }
 
   void getMessageHistory(int organizationIndex) {
     if (organizationIndex < 0 || organizationIndex >= organizations.length) {
+      print('Invalid organization index');
       return;
     }
-    var org = organizations[organizationIndex];
     if (currentTextChannel['id'] == '') {
+      print('No channel selected');
       return;
     }
     // Prevent multiple simultaneous fetches of posts history
-    if (_fetchingOldPosts) {
-      return;
+    if (fetchingOldPosts) return;
+    fetchingOldPosts = true;
+
+    Map org = organizations[organizationIndex];
+    final socket = _getServerSocket(org);
+    String? lastPostId;
+
+    if (currentChannelsMessages.isNotEmpty) {
+      // FIX: The oldest message is now at the END of the list
+      lastPostId = currentChannelsMessages.last['id'].toString();
     }
-    _fetchingOldPosts = true;
-    if (org['host'] != null && org['port'] != null) {
-      SocketClient().sendToUserServer(
-        '${org['host']}:${org['port']}',
-        'getHistory',
-        {
-          'organization_id': org['id'],
-          'channel_id': currentTextChannel['id'],
-          'last_post_id':
-              currentChannelsMessages[0]['id'], // Send the id of the oldest post we have to fetch posts before it
-        },
-      );
-    } else {
-      if (currentChannelsMessages.isEmpty) {
-        SocketClient().sendToMain('getHistory', {
-          'organization_id': org['id'],
-          'channel_id': currentTextChannel['id'],
-          'last_post_id':
-              null, // If there are no messages, fetch the latest messages
-        });
-      } else {
-        SocketClient().sendToMain('getHistory', {
-          'organization_id': org['id'],
-          'channel_id': currentTextChannel['id'],
-          'last_post_id':
-              currentChannelsMessages[0]['id'], // Send the id of the oldest post we have to fetch posts before it
-        });
-      }
-    }
+
+    final payload = {
+      'organization_id': org['id'],
+      'channel_id': currentDisplayedChannel['id'],
+      'last_post_id': lastPostId,
+    };
+
+    socket.emit('getHistory', payload);
   }
 
   void messageListener(int organizationIndex) {
     var org = organizations[organizationIndex];
-    if (org['host'] != null && org['port'] != null) {
-      // Reset listeners to prevent duplicates
-      SocketClient().offUserEvent(
-        '${org['host']}:${org['port']}',
-        'newMessage',
+    final socket = _getServerSocket(org);
+    final isMainServer = socket == SocketClient().mainSocket;
+
+    // Reset listeners to prevent duplicates
+    socket.off('newMessage');
+    socket.off('sendHistory');
+
+    // NEW MESSAGE
+    socket.on('newMessage', (data) {
+      final Map<String, dynamic> message = Map<String, dynamic>.from(
+        data as Map,
       );
-      SocketClient().offUserEvent(
-        '${org['host']}:${org['port']}',
-        'sendHistory',
-      );
-      // Set up listeners for new messages and message history
-      SocketClient().onUserEvent(
-        '${org['host']}:${org['port']}',
-        'newMessage',
-        (data) {
-          final Map<String, dynamic> message = Map<String, dynamic>.from(
-            data as Map,
-          );
-          currentChannelsMessages.add(message);
-          notifyListeners();
-        },
-      );
-      SocketClient().onUserEvent(
-        '${org['host']}:${org['port']}',
-        'sendHistory',
-        (data) {
-          final List<dynamic> jsonList = data is String
-              ? jsonDecode(data)
-              : data;
-          final List<Map<String, dynamic>> posts = jsonList
-              .map((item) => Map<String, dynamic>.from(item as Map))
-              .toList();
-          currentChannelsMessages.insertAll(0, posts);
-          notifyListeners();
-          _fetchingOldPosts = false;
-        },
-      );
-    } else {
-      // Reset listeners to prevent duplicates
-      SocketClient().offMainEvent('newMessage');
-      SocketClient().offMainEvent('sendHistory');
-      // Set up listeners for new messages and message history
-      SocketClient().onMainEvent('newMessage', (data) {
-        final Map<String, dynamic> message = Map<String, dynamic>.from(
-          data as Map,
-        );
+      if (isMainServer) {
+        // Insert at the beginning so it shows at the bottom of the reversed list
+        currentChannelsMessages.insert(0, message);
+      } else {
+        // Assumes user server sends in order to be added at the end
         currentChannelsMessages.add(message);
-        notifyListeners();
-      });
-      SocketClient().onMainEvent('sendHistory', (data) {
-        final List<dynamic> jsonList = data is String ? jsonDecode(data) : data;
-        final List<Map<String, dynamic>> posts = jsonList
-            .map((item) => Map<String, dynamic>.from(item as Map))
-            .toList();
-        currentChannelsMessages.insertAll(0, posts);
-        notifyListeners();
-        _fetchingOldPosts = false;
-      });
-    }
+      }
+      notifyListeners();
+    });
+
+    // HISTORY
+    socket.on('sendHistory', (data) {
+      final List<dynamic> jsonList = data is String ? jsonDecode(data) : data;
+      final List<Map<String, dynamic>> posts = jsonList
+          .map((item) => Map<String, dynamic>.from(item as Map))
+          .toList();
+
+      if (isMainServer) {
+        currentChannelsMessages.addAll(posts); // Append older posts to the end
+      } else {
+        currentChannelsMessages.insertAll(0, posts); // Prepend older posts
+      }
+      fetchingOldPosts = false;
+      notifyListeners();
+    });
   }
 }

@@ -108,7 +108,7 @@ class _AuthGateState extends State<AuthGate> {
         // Send login
         SocketClient().sendToMain('register', {
           'user_tag': usertag,
-          'user_name': username,
+          'default_name': username,
           'email': email,
           'password': Credentials().hashedPassword,
         });
