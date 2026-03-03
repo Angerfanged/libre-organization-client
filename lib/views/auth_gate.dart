@@ -29,8 +29,6 @@ class _AuthGateState extends State<AuthGate> {
   bool _isLoading = false;
   bool _showForm = true; // Track if we should show the form or loading
 
-  final String _mainServerUrl = 'http://localhost:3000';
-
   @override
   void initState() {
     super.initState();
@@ -75,7 +73,7 @@ class _AuthGateState extends State<AuthGate> {
   ) async {
     try {
       // Connect to server
-      SocketClient().initMainConnection(_mainServerUrl);
+      SocketClient().initMainConnection();
       try {
         await SocketClient().waitForConnection(SocketClient().mainSocket);
       } catch (e) {
@@ -171,7 +169,7 @@ class _AuthGateState extends State<AuthGate> {
   Future<void> _performLogin(String email, String password) async {
     try {
       // Connect to server
-      SocketClient().initMainConnection(_mainServerUrl);
+      SocketClient().initMainConnection();
       try {
         await SocketClient().waitForConnection(SocketClient().mainSocket);
       } catch (e) {
@@ -317,7 +315,7 @@ class _AuthGateState extends State<AuthGate> {
             child: SingleChildScrollView(
               padding: const EdgeInsets.all(24.0),
               child: Container(
-                width: 350,
+                constraints: const BoxConstraints(maxWidth: 300),
                 padding: const EdgeInsets.all(20),
                 decoration: BoxDecoration(
                   color: Theme.of(context).cardColor,
@@ -443,7 +441,7 @@ class _AuthGateState extends State<AuthGate> {
             child: SingleChildScrollView(
               padding: const EdgeInsets.all(24.0),
               child: Container(
-                width: 350,
+                constraints: const BoxConstraints(maxWidth: 300),
                 padding: const EdgeInsets.all(20),
                 decoration: BoxDecoration(
                   color: Theme.of(context).cardColor,

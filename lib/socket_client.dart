@@ -1,5 +1,6 @@
 import 'package:libre_organization_client/credentials.dart';
 import 'package:socket_io_client/socket_io_client.dart' as IO;
+import 'package:libre_organization_client/main.dart';
 import 'dart:async';
 
 class SocketClient {
@@ -15,14 +16,14 @@ class SocketClient {
   final Map<String, IO.Socket> userSockets = {};
 
   // Initialize main server connection
-  void initMainConnection(String mainServerUrl) {
-    mainSocket = IO.io(mainServerUrl, <String, dynamic>{
+  void initMainConnection() {
+    mainSocket = IO.io(serverUrl, <String, dynamic>{
       'transports': ['websocket'],
       'autoConnect': true,
     });
 
     mainSocket.onConnect((_) {
-      print('Connected to main server: $mainServerUrl');
+      print('Connected to main server: $serverUrl');
     });
 
     mainSocket.onDisconnect((_) {

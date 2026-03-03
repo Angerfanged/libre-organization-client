@@ -1,11 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:libre_organization_client/credentials.dart';
 import 'package:libre_organization_client/socket_client.dart';
+import 'package:libre_organization_client/views/settings_view.dart';
 import 'package:provider/provider.dart';
 
 import 'package:libre_organization_client/views/chat_view.dart';
 
-import 'package:libre_organization_client/views/user_settings_view.dart';
+import 'package:libre_organization_client/views/settings_view.dart';
 import 'package:libre_organization_client/views/organization_view.dart';
 import 'package:libre_organization_client/presenters/organization_presenter.dart';
 
@@ -163,8 +164,7 @@ class _HomePageState extends State<HomePage> {
                               Navigator.push(
                                 context,
                                 MaterialPageRoute(
-                                  builder: (context) =>
-                                      const UserSettingsView(),
+                                  builder: (context) => const SettingsView(),
                                 ),
                               );
                             },

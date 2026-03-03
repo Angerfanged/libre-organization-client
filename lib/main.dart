@@ -6,11 +6,18 @@ import 'package:libre_organization_client/theme/dynamic_theme.dart';
 
 import 'package:libre_organization_client/views/auth_gate.dart';
 import 'package:libre_organization_client/views/home_page.dart';
+import 'package:libre_organization_client/views/settings_view.dart';
 import 'package:libre_organization_client/presenters/file_presenter.dart';
 
+import 'package:libre_organization_client/socket_client.dart';
 import 'package:libre_organization_client/presenters/organization_presenter.dart';
 
+/// The base URL for the server.
+const String serverUrl = 'http://localhost:3000';
+
 void main() {
+  // Initialize the main socket connection
+  SocketClient().initMainConnection();
   runApp(
     MultiProvider(
       providers: [
@@ -48,9 +55,8 @@ class MyApp extends StatelessWidget {
           home: const AuthGate(),
           routes: {
             '/auth': (context) => const AuthGate(),
-            // Add your other routes here:
             '/home': (context) => const HomePage(),
-            // '/settings': (context) => const SettingsPage(),
+            '/settings': (context) => const SettingsView(),
           },
         );
       },
